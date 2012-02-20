@@ -7,6 +7,7 @@
 #include<fcntl.h>
 #include<glib.h>
 #include<sys/types.h>
+#include<signal.h>
 #define _LARGEFILE64_SOURCE
 
 #define BUFFER_SIZE 256
@@ -20,6 +21,8 @@
 #define PAGESHIFTBITS 0x1F80000000000000
 //#define PAGESHIFTBITS 0x1F8
 
+int* PIDs;
+
 struct pagedata {
 	int memmapped;
 	int procmapped;
@@ -30,23 +33,21 @@ void * newkey(unsigned long long key){
 	*temp = key;
 	return temp;
 }
-/* newval is deprecated because hashtable stores structs now.
-void * newval(unsigned int val){
-	unsigned int *temp =  malloc(sizeof(*temp));
-	*temp = val;
-	return temp;
-}
-*/
 void destroyval(void *val){
 	free(val);
 }
-/* Deprecated because hashtable isn't using int as value.
-void printvals(void* key, void* value, void* userdata){
-	unsigned long long *castkey = key;
-	unsigned int *castvalue = value;
-	printf("key= %Ld, value= %d\n", *castkey, *castvalue);
+
+void cleanup(int signal){
+	int loopval = 0, nPIDs = 0;
+	nPIDs = sizeof(PIDs)/sizeof(int);
+	char pathbuf[PATH_MAX];
+	for (loopval=0; loopval< nPIDs; loopval++){
+		sprintf(pathbuf, "kill -CONT %d", PIDs[loopval]);
+		system(pathbuf);
+	}
+	printf("Program terminated successfully\n");
+	exit(0);
 }
-*/
 
 int lookup_pageflags(unsigned long long PFN, int fdpageflags, struct pagedata* pData){
 	unsigned long long index;
@@ -57,12 +58,12 @@ int lookup_pageflags(unsigned long long PFN, int fdpageflags, struct pagedata* p
 	offset = lseek64(fdpageflags, index, SEEK_SET);
 	if (offset != index){
 		fprintf(stderr, "Error seeking to offset %Ld using index %Ld\n", offset, index);
-		return errno;
+		exit(errno);
 	}
 	retval = read(fdpageflags, &bitbuffer, sizeof(char)*8);
 	if (retval < 0){
 		fprintf(stderr, "Error occurred reading from file for pageflags\n");
-		return errno;
+		exit(errno);
 	}
 	printf("%016Lx|",bitbuffer);
 	return 0;
@@ -78,12 +79,12 @@ int lookup_pagecount(unsigned long long PFN, int fdpagecount, struct pagedata *p
 	if (offset != index){
 		fprintf(stderr, "Error seeking to offset %Ld using index %Ld\n", offset, index);
 		printf("errno : %d",errno);
-		return errno;
+		exit(errno);
 	}
 	retval = read(fdpagecount, &bitbuffer, sizeof(char)*8);
 	if (retval < 0){
 		fprintf(stderr, "Error occurred reading from file for pagecount\n");
-		return errno;
+		exit(errno);
 	}
 	printf("%d,%Ld|",pData->procmapped, bitbuffer);
 	pData->memmapped = bitbuffer;
@@ -101,12 +102,12 @@ int lookup_page(unsigned long long index, int fdpagemap, GHashTable *pages, int 
 	offset = lseek64(fdpagemap, index, SEEK_SET);
 	if (offset != index){
 		fprintf(stderr, "Error seeking to offset %Ld using index %Ld\n", offset, index);
-		return errno; 
+		exit(errno); 
 	}
 	retval = read(fdpagemap, &bitbuffer, sizeof(char)*8);
 	if (retval < 0){
 		fprintf(stderr, "Error occurred reading from file for pagemap\n");
-		return errno;
+		exit(errno);
 	}
 	printf("%016Lx|", bitbuffer);
 	//pageshift = (bitbuffer & PAGESHIFTBITS) >> 55;
@@ -138,12 +139,12 @@ int lookup_page(unsigned long long index, int fdpagemap, GHashTable *pages, int 
 		retval = lookup_pagecount(pfnbits, fdpagecount, pData);
 		if (retval){
 			fprintf(stderr, "Error code %d\n", errno);
-			return retval;
+			exit(retval);
 		}
 		retval = lookup_pageflags(pfnbits, fdpageflags, pData);
 		if (retval){
 			fprintf(stderr, "Error code %d\n", errno);
-			return retval;
+			exit(retval);
 		}
 	}
 	printf("\n");
@@ -170,11 +171,11 @@ int lookup_pagemap(unsigned long from, unsigned long to, const char* path, GHash
 		retval = lookup_page(index, fdpagemap, pages, fdpageflags, fdpagecount);
 		if (retval){
 			fprintf(stderr, "Error occurred looking up %Ld in %s \n", index, path);
-			break;
+			exit(retval);
 		}
 	}
 
-	return retval;
+	return 0;
 }
 
 int main(int argc, char *argv[]){
@@ -183,32 +184,35 @@ int main(int argc, char *argv[]){
 	FILE* filemaps;
 	char buffer[BUFFER_SIZE];
 	unsigned long addrstart, addrend, pagecount;
-	int retval, loopval;
+	int retval, loopval, PIDcount;
 	size_t pagesize = getpagesize();
-	
-
 	GHashTable *pages = g_hash_table_new_full(g_int64_hash,
 		 g_int64_equal, &destroyval, &destroyval);
 
-	//g_hash_table_insert(hashtable, newkey(13), newval(1));
-	//g_hash_table_insert(hashtable, newkey(5), newval(2));
-	//int lookval = 5;
-	//printf("value for key %d is %d\n", lookval, *(unsigned int*) g_hash_table_lookup(hashtable, &lookval));
-	//g_hash_table_foreach(hashtable, &printvals, NULL);
-	//g_hash_table_destroy(hashtable); Hash table not cleaned up, exists until end of program.
+	if (signal(SIGTERM, cleanup) == SIG_ERR){
+		fprintf(stderr, "Error occurred setting signal handler\n");
+		exit(-1);
+	}
+	if (signal(SIGINT, cleanup) == SIG_ERR){
+		fprintf(stderr, "Error occurred setting signal handler\n");
+		exit(-1);
+	}
 
 	//Check for valid input
 	if (argc < 2){
 		printf("Format must be %s PID ...\n", argv[0]); //currently only supporting one process inspected at once.
-		return 2;
+		exit(-2);
 	}
+	PIDcount = argc - 1;
+	PIDs = malloc(sizeof(int)*PIDcount);
 	
 	for (loopval=1; loopval< argc; loopval++){
 		sprintf(pathbuf, "kill -STOP %s", argv[loopval]);
+		PIDs[loopval-1] = strtol(argv[loopval], NULL, 0);
 		retval = system(pathbuf);
 		printf("%s returned %d\n", pathbuf, retval);
 		if (retval != 0){
-			return retval;
+			exit(retval);
 		}
 	}
 
@@ -217,7 +221,7 @@ int main(int argc, char *argv[]){
 	fdmaps = open64(pathbuf, O_RDONLY);
 	if (fdmaps < 0){
 		fprintf(stderr, "Error occurred opening %s\n", pathbuf);
-		return errno;
+		exit(errno);
 	}
 
 	filemaps = fdopen(fdmaps, "r");
@@ -225,19 +229,19 @@ int main(int argc, char *argv[]){
 	fdpagemap = open64(pathbuf, O_RDONLY);
 	if (fdpagemap < 0){
 		fprintf(stderr, "Error occurred opening %s\n", pathbuf);
-		return errno;
+		exit(errno);
 	}
 	sprintf(pathbuf, "/proc/kpageflags");
 	fdpageflags = open64(pathbuf, O_RDONLY);
 	if (fdpageflags < 0){
 		fprintf(stderr, "Error occurred opening %s\n", pathbuf);
-		return errno;
+		exit(errno);
 	}
 	sprintf(pathbuf, "/proc/kpagecount");
 	fdpagecount = open64(pathbuf, O_RDONLY);
 	if (fdpagecount < 0){
 		fprintf(stderr, "Error occurred opening %s\n", pathbuf);
-		return errno;
+		exit(errno);
 	}
 
 
@@ -248,27 +252,23 @@ int main(int argc, char *argv[]){
 		retval = sscanf(buffer, "%lx-%lx", &addrstart, &addrend);
 		if (retval < 2){
 			fprintf(stderr, "Error: Could not find both address start and address end\n");
-			return errno;
+			exit(errno);
 		}
 		pagecount = (addrend - addrstart)/pagesize;
 		printf("VMA is %ld pages long\n", pagecount);
 		if (pagecount < 1){
 			fprintf(stderr, "Error: VMA contains no pages\n");
-			return 1;
+			exit(-3);
 		}
 
 		retval=lookup_pagemap(addrstart, addrend, pathbuf, pages, fdpagemap, fdpageflags, fdpagecount);
 		if(retval != 0){
 			fprintf(stderr, "Error occurred looking up pagemap\n");
-			return retval;
+			exit(retval);
 		}
 		//break;
 	}
-	for (loopval=1; loopval< argc; loopval++){
-		sprintf(pathbuf, "kill -CONT %s", argv[loopval]);
-		retval = system(pathbuf);
-		printf("%s returned %d\n", pathbuf, retval);
-	}
 
+	cleanup(0);
 	return 0;
 }
