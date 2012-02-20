@@ -20,34 +20,35 @@
 #define PAGESHIFTBITS 0x1F80000000000000
 //#define PAGESHIFTBITS 0x1F8
 
-
-// Return Errors
-#define NO_ERRORS 0
+struct pagedata {
+	int memmapped;
+	int procmapped;
+};
 
 void * newkey(unsigned long long key){
 	long long *temp = malloc(sizeof(*temp));
 	*temp = key;
 	return temp;
 }
-
+/* newval is deprecated because hashtable stores structs now.
 void * newval(unsigned int val){
 	unsigned int *temp =  malloc(sizeof(*temp));
 	*temp = val;
 	return temp;
 }
-
+*/
 void destroyval(void *val){
 	free(val);
 }
-
+/* Deprecated because hashtable isn't using int as value.
 void printvals(void* key, void* value, void* userdata){
 	unsigned long long *castkey = key;
 	unsigned int *castvalue = value;
 	printf("key= %Ld, value= %d\n", *castkey, *castvalue);
 }
+*/
 
-
-int lookup_pageflags(unsigned long long PFN, int fdpageflags){
+int lookup_pageflags(unsigned long long PFN, int fdpageflags, struct pagedata* pData){
 	unsigned long long index;
 	unsigned long long offset;
 	unsigned long long bitbuffer;
@@ -63,11 +64,11 @@ int lookup_pageflags(unsigned long long PFN, int fdpageflags){
 		fprintf(stderr, "Error occurred reading from file for pageflags\n");
 		return errno;
 	}
-	printf("%Ld|",bitbuffer);
+	printf("%016Lx|",bitbuffer);
 	return 0;
 }
 
-int lookup_pagecount(unsigned long long PFN, int fdpagecount){
+int lookup_pagecount(unsigned long long PFN, int fdpagecount, struct pagedata *pData){
 	unsigned long long index;
 	unsigned long long offset;
 	unsigned long long bitbuffer;
@@ -84,18 +85,23 @@ int lookup_pagecount(unsigned long long PFN, int fdpagecount){
 		fprintf(stderr, "Error occurred reading from file for pagecount\n");
 		return errno;
 	}
-	printf("%Ld|",bitbuffer);
+	printf("%d,%Ld|",pData->procmapped, bitbuffer);
+	pData->memmapped = bitbuffer;
+	if (pData->procmapped > bitbuffer){
+		printf("Page mapped by same process more than once!");
+	}
 	return 0;
 }
 
 int lookup_page(unsigned long long index, int fdpagemap, GHashTable *pages, int fdpageflags, int fdpagecount){
 	unsigned long long offset, bitbuffer;
 	int retval, pageshift;
+	struct pagedata *pData = NULL;
 	//printf("index page : %Ld\n", index);
 	offset = lseek64(fdpagemap, index, SEEK_SET);
 	if (offset != index){
 		fprintf(stderr, "Error seeking to offset %Ld using index %Ld\n", offset, index);
-		return errno; // maybe we have to return ERROR_SEEK
+		return errno; 
 	}
 	retval = read(fdpagemap, &bitbuffer, sizeof(char)*8);
 	if (retval < 0){
@@ -109,7 +115,8 @@ int lookup_page(unsigned long long index, int fdpagemap, GHashTable *pages, int 
 	if (bitbuffer & PAGEPRESENT){
 		printf("Present|");
 	}else{
-		printf("Absent|");
+		printf("Absent|\n");
+		return 0;
 	}
 	//printf("\nbitbuffer & PAGESWAPPED: %016Lx&%016Lx=%016Lx\n",bitbuffer, PAGESWAPPED, bitbuffer & PAGESWAPPED);
 	if (bitbuffer & PAGESWAPPED){ //This behaviour cannot be checked at this stage.
@@ -118,13 +125,22 @@ int lookup_page(unsigned long long index, int fdpagemap, GHashTable *pages, int 
 		unsigned long long pfnbits;
 		printf("Unswapped|");
 		pfnbits = bitbuffer & PFNBITS;
+		pData = g_hash_table_lookup(pages, &pfnbits);
+		if (pData == NULL){
+			pData = malloc(sizeof(*pData));
+			pData->procmapped = 1;
+			g_hash_table_insert(pages, newkey(pfnbits), pData);
+		}else{
+			pData->procmapped += 1;
+		}
+	//g_hash_table_insert(hashtable, newkey(13), newval(1));
 		printf("%Ld|", pfnbits);
-		retval = lookup_pagecount(pfnbits, fdpagecount);
+		retval = lookup_pagecount(pfnbits, fdpagecount, pData);
 		if (retval){
 			fprintf(stderr, "Error code %d\n", errno);
 			return retval;
 		}
-		retval = lookup_pageflags(pfnbits, fdpageflags);
+		retval = lookup_pageflags(pfnbits, fdpageflags, pData);
 		if (retval){
 			fprintf(stderr, "Error code %d\n", errno);
 			return retval;
