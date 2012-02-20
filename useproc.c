@@ -6,6 +6,9 @@
 #include<unistd.h>
 #include<fcntl.h>
 #include<glib.h>
+#include<sys/types.h>
+#define _LARGEFILE64_SOURCE
+
 #define BUFFER_SIZE 256
 
 #define PAGEPRESENT   0x8000000000000000
@@ -16,6 +19,10 @@
 //#define PFNBITS       0xFFFFFFFFFFFFF000
 #define PAGESHIFTBITS 0x1F80000000000000
 //#define PAGESHIFTBITS 0x1F8
+
+
+// Return Errors
+#define NO_ERRORS 0
 
 void * newkey(unsigned long long key){
 	long long *temp = malloc(sizeof(*temp));
@@ -53,7 +60,7 @@ int lookup_pageflags(unsigned long long PFN, int fdpageflags){
 	}
 	retval = read(fdpageflags, &bitbuffer, sizeof(char)*8);
 	if (retval < 0){
-		fprintf(stderr, "Error occurred reading from file\n");
+		fprintf(stderr, "Error occurred reading from file for pageflags\n");
 		return errno;
 	}
 	printf("%Ld|",bitbuffer); 
@@ -68,36 +75,41 @@ int lookup_pagecount(unsigned long long PFN, int fdpagecount){
 	offset = lseek64(fdpagecount, index, SEEK_SET);
 	if (offset != index){
 		fprintf(stderr, "Error seeking to offset %Ld using index %Ld\n", offset, index);
+		printf("errno : %d",errno);
 		return errno;
 	}
 	retval = read(fdpagecount, &bitbuffer, sizeof(char)*8);
 	if (retval < 0){
-		fprintf(stderr, "Error occurred reading from file\n");
+		fprintf(stderr, "Error occurred reading from file for pagecount\n");
 		return errno;
 	}
 	printf("%Ld|",bitbuffer); 
 }
+
 int lookup_page(unsigned long long index, int fdpagemap, GHashTable *pages, int fdpageflags, int fdpagecount){
 	unsigned long long offset, bitbuffer;
 	int retval, pageshift;
-
+	//printf("index page : %Ld\n", index);
 	offset = lseek64(fdpagemap, index, SEEK_SET);
 	if (offset != index){
 		fprintf(stderr, "Error seeking to offset %Ld using index %Ld\n", offset, index);
+		return errno; // maybe we have to return ERROR_SEEK
 	}
 	retval = read(fdpagemap, &bitbuffer, sizeof(char)*8);
 	if (retval < 0){
-		fprintf(stderr, "Error occurred reading from file\n");
+		fprintf(stderr, "Error occurred reading from file for pagemap\n");
 		return errno;
 	}
 	printf("%016Lx|", bitbuffer);
 	//pageshift = (bitbuffer & PAGESHIFTBITS) >> 55;
 	//printf("%dbytes|", 1 << pageshift);
+	//printf("\nbitbuffer & PAGEPRESENT: %016Lx\n",bitbuffer & PAGEPRESENT);
 	if (bitbuffer & PAGEPRESENT){
 		printf("Present|");
 	}else{
 		printf("Absent|");
 	}
+	//printf("\nbitbuffer & PAGESWAPPED: %016Lx&%016Lx=%016Lx\n",bitbuffer, PAGESWAPPED, bitbuffer & PAGESWAPPED);
 	if (bitbuffer & PAGESWAPPED){ //This behaviour cannot be checked at this stage.
 		printf("Swapped|");
 	}else{
@@ -107,12 +119,12 @@ int lookup_page(unsigned long long index, int fdpagemap, GHashTable *pages, int 
 		printf("%Ld|", pfnbits);
 		retval = lookup_pagecount(pfnbits, fdpagecount);
 		if (retval){
-			fprintf(stderr, "Error occurred reading from file\n");
+			fprintf(stderr, "Error code %d\n", errno);
 			return retval;
 		}
 		retval = lookup_pageflags(pfnbits, fdpageflags);
 		if (retval){
-			fprintf(stderr, "Error occurred reading from file\n");
+			fprintf(stderr, "Error code %d\n", errno);
 			return retval;
 		}
 	}
@@ -130,8 +142,13 @@ int lookup_pagemap(unsigned long from, unsigned long to, const char* path, GHash
 	size_t fromsize = from/pagesize * stepsize;
 	size_t tosize = to/pagesize*stepsize;
 	//start looking in pagemap
+/**/
+	//printf("SA:%lx||FA:%lx\n",from, to);
+	//printf("PS:%d||SS:%d||FS:%d||TS:%d||\n",pagesize,stepsize,fromsize,tosize);
+/**/
 
 	for(index=fromsize;index<tosize;index+= stepsize){
+		//printf("index pagemap %Ld\n", index);
 		retval = lookup_page(index, fdpagemap, pages, fdpageflags, fdpagecount);
 		if (retval){
 			fprintf(stderr, "Error occurred looking up %Ld in %s \n", index, path);
@@ -183,17 +200,21 @@ int main(int argc, char *argv[]){
 		return errno;
 	}
 	sprintf(pathbuf, "/proc/kpageflags");
-	fdpageflags = (pathbuf, O_RDONLY);
+	fdpageflags = open64(pathbuf, O_RDONLY);
 	if (fdpageflags < 0){
 		fprintf(stderr, "Error occurred opening %s\n", pathbuf);
 		return errno;
 	}
 	sprintf(pathbuf, "/proc/kpagecount");
-	fdpagecount = (pathbuf, O_RDONLY);
+	fdpagecount = open64(pathbuf, O_RDONLY);
 	if (fdpagecount < 0){
 		fprintf(stderr, "Error occurred opening %s\n", pathbuf);
 		return errno;
 	}
+
+
+	sprintf(pathbuf, "/proc/%s/pagemap", argv[1]);//no important but this is the pathbuf
+
 	while (fgets(buffer, BUFFER_SIZE, filemaps) != NULL){
 		printf("%s", buffer);
 		retval = sscanf(buffer, "%lx-%lx", &addrstart, &addrend);
