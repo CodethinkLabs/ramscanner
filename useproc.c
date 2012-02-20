@@ -52,7 +52,7 @@ int lookup_pageflags(unsigned long long PFN, int fdpageflags){
 	unsigned long long offset;
 	unsigned long long bitbuffer;
 	int retval = 0;
-	index = PFN;
+	index = PFN*8;
 	offset = lseek64(fdpageflags, index, SEEK_SET);
 	if (offset != index){
 		fprintf(stderr, "Error seeking to offset %Ld using index %Ld\n", offset, index);
@@ -63,7 +63,8 @@ int lookup_pageflags(unsigned long long PFN, int fdpageflags){
 		fprintf(stderr, "Error occurred reading from file for pageflags\n");
 		return errno;
 	}
-	printf("%Ld|",bitbuffer); 
+	printf("%Ld|",bitbuffer);
+	return 0;
 }
 
 int lookup_pagecount(unsigned long long PFN, int fdpagecount){
@@ -71,7 +72,7 @@ int lookup_pagecount(unsigned long long PFN, int fdpagecount){
 	unsigned long long offset;
 	unsigned long long bitbuffer;
 	int retval = 0;
-	index = PFN;
+	index = PFN*8;
 	offset = lseek64(fdpagecount, index, SEEK_SET);
 	if (offset != index){
 		fprintf(stderr, "Error seeking to offset %Ld using index %Ld\n", offset, index);
@@ -83,7 +84,8 @@ int lookup_pagecount(unsigned long long PFN, int fdpagecount){
 		fprintf(stderr, "Error occurred reading from file for pagecount\n");
 		return errno;
 	}
-	printf("%Ld|",bitbuffer); 
+	printf("%Ld|",bitbuffer);
+	return 0;
 }
 
 int lookup_page(unsigned long long index, int fdpagemap, GHashTable *pages, int fdpageflags, int fdpagecount){
