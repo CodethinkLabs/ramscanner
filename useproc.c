@@ -1,4 +1,5 @@
-//Makes use of proc files to retrieve page information about a defined process
+#define _LARGEFILE64_SOURCE
+
 #include<stdio.h>
 #include<stdlib.h>
 #include<linux/limits.h>
@@ -8,27 +9,30 @@
 #include<glib.h>
 #include<sys/types.h>
 #include<signal.h>
-#define _LARGEFILE64_SOURCE
 
-#define BUFFER_SIZE 256
+#define BUFFER_SIZE 256 /*Size of buffers pre-defined as quite large, for lack of knowing exactly what size they need to be*/
 
-#define PAGEPRESENT   0x8000000000000000
-//#define PAGEPRESENT   0x1
-#define PAGESWAPPED   0x4000000000000000
-//#define PAGESWAPPED   0x2
-#define PFNBITS       0x007FFFFFFFFFFFFF
-//#define PFNBITS       0xFFFFFFFFFFFFF000
-#define PAGESHIFTBITS 0x1F80000000000000
-//#define PAGESHIFTBITS 0x1F8
+/*Bit masks used in pagemap. See documentation/vm/pagemap.txt for a full list of bits*/
+#define PAGEPRESENT   0x8000000000000000 /*Bit 63 is page present*/
+#define PAGESWAPPED   0x4000000000000000 /*Bit 62 is page swapped*/
+#define PFNBITS       0x007FFFFFFFFFFFFF /*Bits 0-54 store the page frame number if page present and not swapped*/
+#define PAGESHIFTBITS 0x1F80000000000000 /*Bits 55-60 page shift (page size = 1<<page shift)*/
 
-int* PIDs;
 
+struct sizestats{
+	unsigned int uss; /*Count of pages unique to the process (only mapped once)*/
+	unsigned int sss; /*Count of pages only mapped within the process*/
+	unsigned int gss; /*Count of pages only mapped by the processes specified as arguments to this program*/
+};
 struct pagedata {
-	int memmapped;
-	int procmapped;
+	unsigned int memmapped; /*Internal store of how many times this page has been mapped by the memory manager*/
+	unsigned int procmapped;/*Internal store of how many times this page has been mapped by the PIDs defined*/
 };
 
-void * newkey(unsigned long long key){
+unsigned int *PIDs; /*Global array of PIDs used, so that they can be restarted if the program is told to terminate early*/
+unsigned int PIDcount;
+
+void * newkey(unsigned long long key){ /*Allocates an unsigned long long from argument, to be passed into Hash Table as key*/
 	long long *temp = malloc(sizeof(*temp));
 	*temp = key;
 	return temp;
@@ -38,10 +42,9 @@ void destroyval(void *val){
 }
 
 void cleanup(int signal){
-	int loopval = 0, nPIDs = 0;
-	nPIDs = sizeof(PIDs)/sizeof(int);
+	int loopval = 0;
 	char pathbuf[PATH_MAX];
-	for (loopval=0; loopval< nPIDs; loopval++){
+	for (loopval=0; loopval< PIDcount; loopval++){
 		sprintf(pathbuf, "kill -CONT %d", PIDs[loopval]);
 		system(pathbuf);
 	}
@@ -49,7 +52,74 @@ void cleanup(int signal){
 	exit(0);
 }
 
-int lookup_pageflags(unsigned long long PFN, int fdpageflags, struct pagedata* pData){
+void printsummary(struct sizestats *stats){
+	printf("The number of pages used only once in this process (USS): %d\n", stats->uss);
+	printf("The number of pages used only by this process (SSS): %d\n", stats->sss);
+}
+
+void countgss(void *key, void *value, void *data){
+	struct pagedata *page = value;
+	struct sizestats *stats = data;
+	if (page->memmapped == page->procmapped){
+		stats->gss += 1;
+	}
+}
+
+void countsss(void *key, void *value, void *data){
+	struct pagedata *page = value;
+	struct sizestats *stats = data;
+	if (page->memmapped == page->procmapped){
+		stats->sss += 1;
+	}
+}
+
+int lookup_addresses(const char* buffer, int fd, GHashTable *pages){
+	//parse string into addresses and look them up in pagemap (fd)
+	//get the PFN (if available) and lookup in hashtable pages.
+}
+
+int lookup_other_PIDs(const int *procs, unsigned int proccount, GHashTable *pages){ /*Reminder: Currently not called anywhere*/
+	FILE* filemaps;
+	int loopcounter;
+	for(loopcounter = 1; loopcounter < proccount; loopcounter++){
+		char pathbuf[PATH_MAX];
+		char buffer[BUFFER_SIZE];
+		int PID = procs[loopcounter];
+		int fdmaps, fdpagemap;
+		sprintf(pathbuf, "/proc/%d/maps", PID);
+		fdmaps = open64(pathbuf, O_RDONLY);
+		if(errno){
+			fprintf(stderr,"Error occurred opening %s\n", pathbuf);
+			exit(errno);
+		}
+		sprintf(pathbuf, "/proc/%d/pagemap", PID);
+		fdpagemap = open64(pathbuf, O_RDONLY);
+		if(errno){
+			fprintf(stderr,"Error occurred opening %s\n", pathbuf);
+			exit(errno);
+		}
+		filemaps = fdopen(fdmaps, "r");
+		if(errno){
+			fprintf(stderr,"Error occurred making file for maps\n");
+		}
+		while(fgets(buffer, BUFFER_SIZE,filemaps) != NULL){
+			lookup_addresses(buffer, fdpagemap, pages);
+		}
+		close(fdmaps);
+		if(errno){
+			fprintf(stderr,"Error occurred closing maps file\n");
+			exit(errno);
+		}
+		close(fdpagemap);
+		if(errno){
+			fprintf(stderr,"Error occurred closing pagemap file\n");
+			exit(errno);
+		}
+	}
+
+}
+
+int lookup_pageflags(unsigned long long PFN, int fdpageflags, struct pagedata* pData, struct sizestats *stats){
 	unsigned long long index;
 	unsigned long long offset;
 	unsigned long long bitbuffer;
@@ -69,7 +139,7 @@ int lookup_pageflags(unsigned long long PFN, int fdpageflags, struct pagedata* p
 	return 0;
 }
 
-int lookup_pagecount(unsigned long long PFN, int fdpagecount, struct pagedata *pData){
+int lookup_pagecount(unsigned long long PFN, int fdpagecount, struct pagedata *pData, struct sizestats *stats){
 	unsigned long long index;
 	unsigned long long offset;
 	unsigned long long bitbuffer;
@@ -88,13 +158,13 @@ int lookup_pagecount(unsigned long long PFN, int fdpagecount, struct pagedata *p
 	}
 	printf("%d,%Ld|",pData->procmapped, bitbuffer);
 	pData->memmapped = bitbuffer;
-	if (pData->procmapped > bitbuffer){
-		printf("Page mapped by same process more than once!");
+	if (bitbuffer == 1){
+		stats->uss += 1;
 	}
 	return 0;
 }
 
-int lookup_page(unsigned long long index, int fdpagemap, GHashTable *pages, int fdpageflags, int fdpagecount){
+int lookup_page(unsigned long long index, int fdpagemap, GHashTable *pages, int fdpageflags, int fdpagecount, struct sizestats *stats){
 	unsigned long long offset, bitbuffer;
 	int retval, pageshift;
 	struct pagedata *pData = NULL;
@@ -136,12 +206,12 @@ int lookup_page(unsigned long long index, int fdpagemap, GHashTable *pages, int 
 		}
 	//g_hash_table_insert(hashtable, newkey(13), newval(1));
 		printf("%Ld|", pfnbits);
-		retval = lookup_pagecount(pfnbits, fdpagecount, pData);
+		retval = lookup_pagecount(pfnbits, fdpagecount, pData, stats);
 		if (retval){
 			fprintf(stderr, "Error code %d\n", errno);
 			exit(retval);
 		}
-		retval = lookup_pageflags(pfnbits, fdpageflags, pData);
+		retval = lookup_pageflags(pfnbits, fdpageflags, pData, stats);
 		if (retval){
 			fprintf(stderr, "Error code %d\n", errno);
 			exit(retval);
@@ -152,23 +222,16 @@ int lookup_page(unsigned long long index, int fdpagemap, GHashTable *pages, int 
 }
 
 //lookup_pagemap looks up addresses from the start of the VMA to the end.
-int lookup_pagemap(unsigned long from, unsigned long to, const char* path, GHashTable *pages, int fdpagemap, int fdpageflags, int fdpagecount){
+int lookup_pagemap(unsigned long from, unsigned long to, const char* path, GHashTable *pages, int fdpagemap, int fdpageflags, int fdpagecount, struct sizestats *stats){
 	unsigned long long index,offset;
 	int retval = 0;
-
 	size_t pagesize = getpagesize();
 	size_t stepsize = sizeof(char)*8;
 	size_t fromsize = from/pagesize * stepsize;
 	size_t tosize = to/pagesize*stepsize;
-	//start looking in pagemap
-/**/
-	//printf("SA:%lx||FA:%lx\n",from, to);
-	//printf("PS:%d||SS:%d||FS:%d||TS:%d||\n",pagesize,stepsize,fromsize,tosize);
-/**/
 
 	for(index=fromsize;index<tosize;index+= stepsize){
-		//printf("index pagemap %Ld\n", index);
-		retval = lookup_page(index, fdpagemap, pages, fdpageflags, fdpagecount);
+		retval = lookup_page(index, fdpagemap, pages, fdpageflags, fdpagecount, stats);
 		if (retval){
 			fprintf(stderr, "Error occurred looking up %Ld in %s \n", index, path);
 			exit(retval);
@@ -184,16 +247,20 @@ int main(int argc, char *argv[]){
 	FILE* filemaps;
 	char buffer[BUFFER_SIZE];
 	unsigned long addrstart, addrend, pagecount;
-	int retval, loopval, PIDcount;
+	int retval, loopval;
 	size_t pagesize = getpagesize();
 	GHashTable *pages = g_hash_table_new_full(g_int64_hash,
 		 g_int64_equal, &destroyval, &destroyval);
+	struct sizestats stats;
+		stats.uss = 0;
+		stats.gss = 0;
+		stats.sss = 0;
 
-	if (signal(SIGTERM, cleanup) == SIG_ERR){
+	if (signal(SIGTERM, cleanup) == SIG_ERR){//terminate, sent by kill
 		fprintf(stderr, "Error occurred setting signal handler\n");
 		exit(-1);
 	}
-	if (signal(SIGINT, cleanup) == SIG_ERR){
+	if (signal(SIGINT, cleanup) == SIG_ERR){//interrupt, sent by Ctrl-C in terminal 
 		fprintf(stderr, "Error occurred setting signal handler\n");
 		exit(-1);
 	}
@@ -203,18 +270,18 @@ int main(int argc, char *argv[]){
 		printf("Format must be %s PID ...\n", argv[0]); //currently only supporting one process inspected at once.
 		exit(-2);
 	}
-	PIDcount = argc - 1;
-	PIDs = malloc(sizeof(int)*PIDcount);
+	PIDcount = argc - 1; //Assuming only arguments are PIDs: start
+	PIDs = malloc(sizeof(unsigned int)*PIDcount);
 	
 	for (loopval=1; loopval< argc; loopval++){
 		sprintf(pathbuf, "kill -STOP %s", argv[loopval]);
-		PIDs[loopval-1] = strtol(argv[loopval], NULL, 0);
+		PIDs[loopval-1] = strtoul(argv[loopval], NULL, 0);
 		retval = system(pathbuf);
 		printf("%s returned %d\n", pathbuf, retval);
 		if (retval != 0){
 			exit(retval);
 		}
-	}
+	}//Assuming only arguments are PIDs: end
 
 	// Open up maps procfile
 	sprintf(pathbuf, "/proc/%s/maps", argv[1]);
@@ -261,14 +328,42 @@ int main(int argc, char *argv[]){
 			exit(-3);
 		}
 
-		retval=lookup_pagemap(addrstart, addrend, pathbuf, pages, fdpagemap, fdpageflags, fdpagecount);
+		retval=lookup_pagemap(addrstart, addrend, pathbuf, pages, fdpagemap, fdpageflags, fdpagecount, &stats);
 		if(retval != 0){
 			fprintf(stderr, "Error occurred looking up pagemap\n");
 			exit(retval);
 		}
 		//break;
 	}
+	close(fdmaps);
+	if(errno){
+		fprintf(stderr, "Error occurred closing maps file\n");
+		exit(errno);
+	}
+	close(fdpagemap);
+	if(errno){
+		fprintf(stderr, "Error occurred closing pagemap file\n");
+		exit(errno);
+	}
+	close(fdpageflags);
+	if(errno){
+		fprintf(stderr, "Error occurred closing pageflags file\n");
+		exit(errno);
+	}
+	close(fdpagecount);
+	if(errno){
+		fprintf(stderr, "Error occurred closing pagecount file\n");
+		exit(errno);
+	}
+	fclose(filemaps);
+	if(errno){
+		fprintf(stderr, "Error occurred closing maps file pointer\n");
+		exit(errno);
+	}
+	
+	g_hash_table_foreach(pages, countsss, &stats);
 
+	printsummary(&stats);
 	cleanup(0);
 	return 0;
 }
