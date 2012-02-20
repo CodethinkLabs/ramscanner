@@ -183,9 +183,9 @@ int main(int argc, char *argv[]){
 	FILE* filemaps;
 	char buffer[BUFFER_SIZE];
 	unsigned long addrstart, addrend, pagecount;
-	int retval;
+	int retval, loopval;
 	size_t pagesize = getpagesize();
-
+	
 
 	GHashTable *pages = g_hash_table_new_full(g_int64_hash,
 		 g_int64_equal, &destroyval, &destroyval);
@@ -198,10 +198,20 @@ int main(int argc, char *argv[]){
 	//g_hash_table_destroy(hashtable); Hash table not cleaned up, exists until end of program.
 
 	//Check for valid input
-	if (argc!= 2){
-		printf("Format must be %s PID\n", argv[0]); //currently only supporting one process inspected at once.
+	if (argc < 2){
+		printf("Format must be %s PID ...\n", argv[0]); //currently only supporting one process inspected at once.
 		return 2;
 	}
+	
+	for (loopval=1; loopval< argc; loopval++){
+		sprintf(pathbuf, "kill -STOP %s", argv[loopval]);
+		retval = system(pathbuf);
+		printf("%s returned %d\n", pathbuf, retval);
+		if (retval != 0){
+			return retval;
+		}
+	}
+
 	// Open up maps procfile
 	sprintf(pathbuf, "/proc/%s/maps", argv[1]);
 	fdmaps = open64(pathbuf, O_RDONLY);
@@ -209,7 +219,7 @@ int main(int argc, char *argv[]){
 		fprintf(stderr, "Error occurred opening %s\n", pathbuf);
 		return errno;
 	}
-	
+
 	filemaps = fdopen(fdmaps, "r");
 	sprintf(pathbuf, "/proc/%s/pagemap", argv[1]);
 	fdpagemap = open64(pathbuf, O_RDONLY);
@@ -253,6 +263,11 @@ int main(int argc, char *argv[]){
 			return retval;
 		}
 		//break;
+	}
+	for (loopval=1; loopval< argc; loopval++){
+		sprintf(pathbuf, "kill -CONT %s", argv[loopval]);
+		retval = system(pathbuf);
+		printf("%s returned %d\n", pathbuf, retval);
 	}
 
 	return 0;
