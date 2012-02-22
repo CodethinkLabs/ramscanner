@@ -1,0 +1,25 @@
+DESCRIPTION:
+Ramscanner tool - collects information about a process using: 
+/proc/PID/maps
+/proc/PID/smaps
+/proc/PID/pagemap
+/proc/kpagecount
+/proc/kpageflags
+
+USAGE:
+ramscanner [PIDs]
+As arguments, the first PID it receives will be stopped, interrogated using the proc files, then signalled to continue.
+All other PIDs received will also be stopped, and used to calculate Gss (see below), then signalled to continue.
+
+Prints summary of information for the process
+Vss: Amount of memory addressed in memory map
+Rss: Amount of memory memory-mapped in RAM
+Pss: Amount of memory per page divided by number of times mapped
+Uss: Amount of memory unique to the process (only mapped once)
+Sss: Amount of memory only mapped within the process
+Gss: Amount of memory only mapped by the processes specified as arguments to this program
+Referenced: Amount of memory in pages referenced
+Swap: Amount of memory mapped to a swap file/partition
+Anonymous: Amount of memory without an associated file
+Locked: Amount of memory locked
+
