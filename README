@@ -76,3 +76,6 @@ SELF SET SIZE (SSS) - The amount of memory mapped only by this process. Differs 
 GROUP SET SIZE (GSS) - The amount of memory mapped by the primary process which is not mapped by processes other than the Primary or Secondary processes. It is not an indicator of how much memory would be freed if the primary and secondary processes are stopped, but is a good indicator of how much memory the primary process shares with the secondary processes.
 REFERENCED - Amount of memory in pages referenced
 
+SEE ALSO:
+man proc - information about the maps and smaps proc files.
+Linux/Documentation/vm/pagemap.txt - information about pagemap, kpagecount and kpageflags proc files, including the meanings of each bit.
