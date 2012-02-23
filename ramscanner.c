@@ -43,7 +43,7 @@
 #define PROC_PATH "/proc"
 #define KPAGEFLAGS_FILENAME "kpageflags"
 #define KPAGECOUNT_FILENAME "kpagecount"
-#define MAPS_FILENAME "maps" /*access maps by PROC_PATH/%u/MAPS_FILENAME*/
+#define MAPS_FILENAME "maps"
 #define SMAPS_FILENAME "smaps"
 #define PAGEMAP_FILENAME "pagemap"
 
@@ -217,6 +217,9 @@ int is_switch(const char *arg)
 
 int try_to_read_PID(const char *arg)
 {
+/* Tries to interpret a string as a number, and if it succeeds returns the PID
+ * Handles the special case of specifying the PID 0, which is forbidden, and 
+ * checks if the PID specified corresponds to an existing process */
 	char *endpt = NULL;
 	pid_t temp = strtoul(arg, &endpt, 0);
 	if (endpt == arg) { /* Did not read a number*/
@@ -238,8 +241,11 @@ int try_to_read_PID(const char *arg)
 
 void warn_if_looks_like_pid(const char *str)
 {
+/* The program requires a file path to be specified after the -s and -d switches
+ * and if a PID is stated instead, the output file will use that as the file
+ * path. So that the user is aware of this, a warning will be generated */
 	if (try_to_read_PID(str)) {
-		printf("Warning: File argument following a flag"
+		fprintf(stderr, "Warning: File argument following a flag"
 			" looks like a PID\n");
 	}
 }
@@ -248,7 +254,9 @@ int handle_switch(const char *argv[], int argc, int index, uint8_t *flags,
 FILE **summary, FILE **detail)
 {
 /*Checks for which switch it received. Returns how many args to skip because 
- * they have been processed in this function*/
+ * they have been processed in this function. It does not crash the program on
+ * finding an invalid argument, but does print an error to stderr so the user
+ * is aware of it */
 	if (tolower(argv[index][1]) == 's') {
 		if (argc <= (index + 1)) {
 			fprintf(stderr, "Error: -s flag must have the filename"
@@ -295,6 +303,9 @@ void add_pid_to_array(pid_t pid, pid_t **pids, uint *pidcount)
 void handle_args(int argc, const char *argv[], pid_t **pids, uint *pidcount, 
 uint8_t *flags, FILE **summaryfile, FILE **detailfile)
 {
+/* Parses the arguments given to the program. It ignores invalid arguments
+ * instead of failing. FILE pointers and PID arrays are set in the functions
+ * called, so are passed as pointers to pointers */
 	int i;
 	pid_t pid;
 	for (i = 1; i < argc; i++) {
@@ -337,16 +348,16 @@ void stop_PIDs(pid_t *pids, uint count)
 	}
 }
 
-void print_detail_from_condition(uint32_t condition, const char *yes, 
-const char *no, FILE *file)
+void print_detail_from_condition(uint32_t condition, const char *truestring, 
+const char *falsestring, FILE *file)
 {
 	if(condition)
-		fprintf(file, "%s", yes);
+		fprintf(file, "%s", truestring);
 	else
-		fprintf(file, "%s", no);
+		fprintf(file, "%s", falsestring);
 } 
 
-void printflags(uint64_t bitfield, FILE *detail)
+void print_flags(uint64_t bitfield, FILE *detail)
 {
 	print_detail_from_condition(bitfield & PAGEFLAG_LOCKED,
 		 "locked,",",", detail);
@@ -368,9 +379,16 @@ void printflags(uint64_t bitfield, FILE *detail)
 void use_pfn(uint64_t pfn, uint8_t flags, struct sizestats *stats, 
 GHashTable *pages, FILE *detail, int fdpageflags, int fdpagecount)
 {
-/*Special treatment: If neither summary nor detail, we're using a PID that
- *isn't the first one. All we want it to do is count how many pages they
- *share with the first process*/
+/* Looks up the hash table of pages to see if this page has been mapped before.
+ * This is done so that it is possible to compare the number of times the page
+ * reports it has been mapped to the number of times the primary or secondary
+ * processes map it.
+ * Looks up the number of times the page reports it has been mapped in 
+ * /proc/kpagecount then compares it to the number of times it has been mapped
+ * by primary or secondary processes.
+ * If the flag for details has been set, it will look up /proc/kpageflags and
+ * retrieve a 64-bit bitfield of the flags set on that process, and pass it to
+ * the function print_flags */
 	int ret;
 	size_t elementsize = sizeof(uint64_t);
 	uint64_t index = pfn * elementsize;
@@ -381,10 +399,16 @@ GHashTable *pages, FILE *detail, int fdpageflags, int fdpagecount)
 		printf("in use_pfn\n");
 
 	if ((pData == NULL)) {
+/* flags containing neither is a special case, as it is impossible to reach this
+ * function if the arguments contain neither detail or summary. It means that
+ * the process being interrogated is not the primary process, so it is used to
+ * calculate Gss by checking if the secondary process maps a PFN that the 
+ * primary process already has.*/
 		if (flags & (FLAG_DETAIL | FLAG_SUMMARY)) {
 			pData = malloc(sizeof(*pData));
 			handle_errno("allocating memory for new page info");
 			pData->procmapped = 1;
+			pData->memmapped = 0; /*Indicates a newly-mapped page*/
 			g_hash_table_insert(pages, newkey(pfn), pData);
 		}
 	} else {
@@ -400,15 +424,16 @@ GHashTable *pages, FILE *detail, int fdpageflags, int fdpagecount)
 	}
 	read(fdpagecount, &bitfield, sizeof(bitfield));
 	handle_errno("reading kpagecount");
-	if (flags & FLAG_SUMMARY) {
+	if ((flags & FLAG_SUMMARY) && (pData->memmapped == 0)) {
+		/*This block of code is called only on a newly-mapped page*/
 		pData->memmapped = bitfield;
 		if (bitfield == 1)
 			stats->uss += getpagesize();
 	}
-	if (flags & FLAG_DETAIL)
-		fprintf(detail, "%Lu,", bitfield);
-	else
+	if (!(flags & FLAG_DETAIL))
 		return;
+
+	fprintf(detail, "%Lu,", bitfield);
 	ret = lseek(fdpageflags, index, SEEK_SET);
 	handle_errno("seeking into kpageflags");
 	if (ret != index) {
@@ -417,13 +442,20 @@ GHashTable *pages, FILE *detail, int fdpageflags, int fdpagecount)
 	}
 	read(fdpageflags, &bitfield, sizeof(bitfield));
 	handle_errno("reading kpageflags");
-	printflags(bitfield, detail);
+	print_flags(bitfield, detail);
 }
 
 void parse_bitfield(uint64_t bitfield, uint8_t flags, struct sizestats *stats, 
 GHashTable *pages, FILE *detail, int fdpageflags, int fdpagecount,
 const struct vmastats *vmst)
 {
+/*Prints the start of the detail line for each line, if requested to print 
+ * details of the process. This is done because it is the first function that 
+ * exists on a per-page context.
+ * If the page is present, it continues to find out more about the page.
+ * If the page is not swapped, the bitfield contains a PFN which can be used to
+ * look up more details in /proc/kpagemaps and /proc/kpagecount, which is
+ * performed in the function use_pfn */
 	uint64_t pfnbits;
 	if (DEBUG)
 		printf("in parse_bitfield\n");
@@ -468,6 +500,9 @@ void lookup_pagemap_with_addresses(uint32_t indexfrom, uint32_t indexto,
 uint8_t flags, struct sizestats *stats, GHashTable *pages, FILE *detail, 
 int fdpageflags, int fdpagecount, int fdpagemap, const struct vmastats *vmst)
 {
+/* Looks up every entry over the index range in pagemap and reads the 64-bit
+ * bitfield into a uint64_t.
+ * Calls parse_bitfield to interpret the meanings of each bit*/
 	size_t entrysize = sizeof(uint64_t);
 	uint32_t entryfrom = indexfrom * entrysize;
 	uint32_t entryto = indexto * entrysize;
@@ -486,9 +521,9 @@ int fdpageflags, int fdpagecount, int fdpagemap, const struct vmastats *vmst)
 			exit(EXIT_FAILURE);
 		}
 		read(fdpagemap, &bitfield, sizeof(bitfield));
+		handle_errno("reading in pagemap");
 		parse_bitfield(bitfield, flags, stats, pages, detail, 
 			fdpageflags, fdpagecount, vmst);
-		handle_errno("reading in pagemap");
 	}
 }
 
@@ -496,6 +531,12 @@ void lookup_maps_with_PID(pid_t pid, uint8_t flags,
 struct sizestats *stats, GHashTable *pages, FILE *detail, 
 int fdpageflags, int fdpagecount)
 {
+/* Uses the PID to access the appropriate /proc/PID/maps file, which contains
+ * Permissions and path information about each Virtual Memory Area (VMA), 
+ * and the region that memory addresses exist for. Assumes constant-sized pages
+ * to pass the range of indexes to be accessed in /proc/PID/pagemap.
+ * Calls the function lookup_pagemap_with_addresses with the range of indexes
+ * to interrogate each listing in pagemap */
 	char pathbuf[PATH_MAX];
 	char buffer[BUFFER_SIZE]; /* Buffer for storing lines read from file*/
 	char *pos = NULL;
