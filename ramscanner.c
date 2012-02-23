@@ -131,7 +131,7 @@ void parse_smaps_file(FILE *file, struct sizestats *stats)
 	int ret = 0;
 	int temp=0;
 	char buffer[BUFFER_SIZE];
-	char* pt = buffer;
+	char *pt = buffer;
 	size_t n = 0;
 	ret = getline(&pt, &n, file);
 
@@ -226,7 +226,13 @@ int try_to_read_PID(const char *arg)
 			"Ignoring argument\n");
 		return 0;
 	} else {
-		return temp;
+		kill(temp, 0);
+		if (errno){
+			errno = 0;
+			return 0;
+		} else {
+			return temp;
+		}
 	}
 }
 
@@ -544,6 +550,10 @@ int fdpageflags, int fdpagecount)
 void inspect_processes(pid_t *pids, uint count, uint8_t flags, 
 struct sizestats *stats, GHashTable *pages, FILE *summary, FILE *detail)
 {
+/* Function to do most of the hard work. flags tell it what to do, and pids
+ * tells it which processes to use. The first PID (primary PID) is inspected
+ * in detail, finding out information about each page. The other PIDs (secondary
+ * PIDs) are used to calculate Gss */
 	char pathbuf[PATH_MAX]; /* Buffer for storing path to open files*/
 
 	int fdpageflags;/* file descriptor for /proc/kpageflags */
@@ -561,7 +571,7 @@ struct sizestats *stats, GHashTable *pages, FILE *summary, FILE *detail)
 	fdpagecount = open(pathbuf, O_RDONLY);
 	handle_errno("opening kpagecount file");
 
-	if (flags | FLAG_DETAIL)
+	if (flags & FLAG_DETAIL)
 		fprintf(detail, "permissions,path,present,size,swapped,"
 			"times mapped,locked,referenced,dirty,anonymous,"
 			"swapcache,swapbacked,KSM\n");
@@ -569,7 +579,7 @@ struct sizestats *stats, GHashTable *pages, FILE *summary, FILE *detail)
 	lookup_maps_with_PID(pids[0], flags, stats, pages, 
 		detail, fdpageflags, fdpagecount);
 
-	if (flags | FLAG_SUMMARY) {
+	if (flags & FLAG_SUMMARY) {
 		g_hash_table_foreach(pages, countsss, stats);
 
 		for (i = 1; i < count; i++) {
@@ -595,6 +605,11 @@ struct sizestats *stats, GHashTable *pages, FILE *summary, FILE *detail)
 
 int main(int argc, const char *argv[])
 {
+/*Sets up the signal handler
+ * Calls functions to turn the arguments into PIDs, flags and filenames, 
+ * stops the PIDs that are going to be inspected
+ * calls the function to inspect the PIDs
+ * writes a summary*/
 	FILE *summaryfile = NULL;
 	FILE *detailfile = NULL;
 
@@ -633,18 +648,24 @@ int main(int argc, const char *argv[])
 	if (DEBUG)
 		printf("about to enter inspect_processes\n");
 
+	if (flags & (FLAG_SUMMARY | FLAG_DETAIL))
 	inspect_processes(PIDs, PIDcount, flags, &stats,
 		pages, summaryfile, detailfile);
+	else
+		printf("%s must specify at least one of -s and -d\n", argv[0]);
 
 	if (DEBUG)
 		printf("inspected processes\n");
 
-	if (flags | FLAG_SUMMARY)
+	if (flags & FLAG_SUMMARY)
 		write_summary(&stats, summaryfile);
+	if (detailfile != NULL)
+		fclose(detailfile);
+	if (summaryfile != NULL)
+		fclose(summaryfile);
 
-	fclose(detailfile);
-	fclose(summaryfile);
 	cleanup(0);
+	g_hash_table_destroy(pages);
 	free(PIDs);
 
 	exit(0);
