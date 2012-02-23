@@ -13,9 +13,11 @@
 #include<string.h>
 #include<ctype.h>
 
-#define BUFFER_SIZE 256 /*Size of buffers pre-defined as quite large, for lack of knowing exactly what size they need to be*/
+#define BUFFER_SIZE 256 /*Size of buffers pre-defined as quite large, for 
+			 *lack of knowing exactly what size they need to be*/
 
-/*Bit masks used in pagemap. See documentation/vm/pagemap.txt for a full list of bits*/
+/*Bit masks used in pagemap. See documentation/vm/pagemap.txt 
+ *for a full list of bits*/
 #define PAGEPRESENT   0x8000000000000000 /*Bit 63 is page present*/
 #define PAGESWAPPED   0x4000000000000000 /*Bit 62 is page swapped*/
 #define PFNBITS       0x007FFFFFFFFFFFFF /*Bits 0-54 store the page frame
@@ -48,7 +50,7 @@
 #define FLAG_SUMMARY 1/*Bit mask for flags bit-field, whether to give summary*/
 #define FLAG_DETAIL 2/*as above, for whether to give details per-page*/
 
-#define DEBUG 1
+#define DEBUG 0
 
 struct sizestats{
 	uint vss; /*Amount of memory kB addressed in memory map*/
@@ -79,10 +81,9 @@ struct vmastats {
 };
 
 
-pid_t *PIDs = NULL; /*Global array of PIDs used, so that they can be restarted if
+pid_t *PIDs = NULL;/*Global array of PIDs used, so that they can be restarted if
 	      *the program is told to terminate early*/
 uint PIDcount = 0;
-
 
 void * newkey(uint64_t key)/*The key is a 54-bit long PFN*/
 { 
@@ -105,18 +106,19 @@ void cleanup(int signal)
 	exit(0);
 }
 
-void printsummary(struct sizestats *stats)
+void write_summary(struct sizestats *stats, FILE* summaryfile)
 {
-	printf( "Vss: \t\t %8u kB\n"
-		"Rss: \t\t %8u kB\n"
-		"Pss: \t\t %8u kB\n"
-		"Uss: \t\t %8u kB\n"
-		"Sss: \t\t %8u kB\n"
-		"Gss: \t\t %8u kB\n"
-		"Referenced: \t %8u kB\n"
-		"Swap: \t\t %8u kB\n"
-		"Anonymous: \t %8u kB\n"
-		"Locked: \t %8u kB\n",
+	fprintf( summaryfile,
+		"Vss, \t\t %8u kB\n"
+		"Rss, \t\t %8u kB\n"
+		"Pss, \t\t %8u kB\n"
+		"Uss, \t\t %8u kB\n"
+		"Sss, \t\t %8u kB\n"
+		"Gss, \t\t %8u kB\n"
+		"Referenced, \t %8u kB\n"
+		"Swap, \t\t %8u kB\n"
+		"Anonymous, \t %8u kB\n"
+		"Locked, \t %8u kB\n",
 		stats->vss, stats->rss, stats->pss, stats->uss, stats->sss,
 		stats->gss, stats->refd, stats->swap, stats->anon,
 		stats->locked);
@@ -187,217 +189,10 @@ void handle_errno(const char *context)
 {
 /*Context refers to where the error took place*/
 	if(errno){
-		fprintf(stderr, "Error occurred when %s, with error: %s\n",  context, 
-strerror(errno));
+		fprintf(stderr, "Error occurred when %s, with error: %s\n", 
+			context, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
-}
-
-void lookup_addresses(const char* buffer, int fd, GHashTable *pages)
-{
-/*parse string into addresses and look them up in pagemap (fd)
- *get the PFN (if available) and lookup in hashtable pages.*/
-	uint32_t addrstart;
-	uint32_t addrend;
-	uint32_t address;
-	uint64_t bitbuffer;
-	int retval;
-	size_t pagesize = getpagesize();
-	size_t stepsize = sizeof(uint64_t);
-
-	retval = sscanf(buffer, "%x-%x", &addrstart, &addrend);
-	handle_errno("parsing addresses from a line of maps file");
-	if (retval < 2){
-		fprintf(stderr, "Error, could not find both address "
-			"start and address end\n");
-		exit(EXIT_FAILURE);
-	}
-	if (((addrend - addrstart) / pagesize) < 1){
-		fprintf(stderr, "Error: VMA contains no pages\n");
-		exit(EXIT_FAILURE);
-	}
-
-	addrstart /= (pagesize / stepsize);
-	addrend /= (pagesize / stepsize);
-	for(address = addrstart; address < addrend; address += stepsize){
-		uint32_t offset;
-		offset = lseek(fd, address, SEEK_SET);
-
-		if (offset != address){
-			char buffer[BUFFER_SIZE];
-			sprintf(buffer, "seeking to offset %uld using index"
-					" %uld", offset, address);
-			handle_errno(buffer);
-		}
-		read(fd, &bitbuffer, sizeof(uint64_t));
-		handle_errno("reading from file for pagemap");
-		if ((bitbuffer & PAGEPRESENT) && !(bitbuffer & PAGESWAPPED)){
-			uint64_t pfn = bitbuffer & PFNBITS;
-			struct pagedata *pData = g_hash_table_lookup(pages,
-				&pfn);
-			if (pData){
-				pData->procmapped += 1;
-			}
-		}
-	}
-
-}
-
-void lookup_other_PIDs(const pid_t *procs, uint proccount, GHashTable *pages){
-	FILE* filemaps;
-	int i;
-
-	if(DEBUG)
-		printf("In function lookup_other_PIDs\n");
-
-	for(i = 1; i < proccount; i++){
-
-		char pathbuf[PATH_MAX];
-		char buffer[BUFFER_SIZE];
-		pid_t PID = procs[i];
-		int fdpagemap;
-
-		sprintf(pathbuf, "/proc/%d/maps", PID);
-		filemaps = fopen(pathbuf, "r");
-		handle_errno("opening maps file");
-		sprintf(pathbuf, "/proc/%d/pagemap", PID);
-		fdpagemap = open(pathbuf, O_RDONLY);
-		handle_errno("opening pagemap file");
-
-
-		while(fgets(buffer, BUFFER_SIZE,filemaps) != NULL){
-			lookup_addresses(buffer, fdpagemap, pages);
-		}
-		fclose(filemaps);
-		handle_errno("closing maps file");
-		close(fdpagemap);
-		handle_errno("closing pagemap file");
-
-	}
-
-}
-
-void lookup_pageflags(uint64_t PFN, int fdpageflags, 
-struct pagedata* pData, struct sizestats *stats)
-{
-	uint64_t index;/*Number of bytes to seek to in pageflags*/
-	uint64_t offset;/*The position in the file that seek reaches*/
-	uint64_t bitbuffer;/*64 bits to be read and interpreted*/
-
-	index = PFN*8;
-	offset = lseek(fdpageflags, index, SEEK_SET);
-
-	if (offset != index){
-		char buffer[BUFFER_SIZE];
-		sprintf(buffer, "seeking to offset %Ld using index %Ld",
-			 offset, index);
-		handle_errno(buffer);
-	}
-	read(fdpageflags, &bitbuffer, sizeof(uint64_t));
-	handle_errno("reading from file for pageflags");
-
-	printf("%016Lx|",bitbuffer);
-
-}
-
-void lookup_pagecount(uint64_t PFN, int fdpagecount, struct pagedata *pData,
-struct sizestats *stats)
-{
-	uint64_t index;/*Number of bytes to seek to in pageflags*/
-	uint64_t offset;/*The position in the file that seek reaches*/
-	uint64_t bitbuffer;/*64 bits to be read and interpreted*/
-	size_t pagesize = getpagesize();
-	index = PFN*8;
-	offset = lseek(fdpagecount, index, SEEK_SET);
-	if (offset != index){
-		char buffer[BUFFER_SIZE];
-		sprintf(buffer, "seeking to offset %Ld using index %Ld",
-			 offset, index);
-		handle_errno(buffer);
-	}
-	read(fdpagecount, &bitbuffer, sizeof(uint64_t));
-	handle_errno("reading from file for pagecount");
-
-	printf("%d,%Ld|", pData->procmapped, bitbuffer);
-	pData->memmapped = bitbuffer;
-	if (bitbuffer == 1)
-		stats->uss += pagesize;
-}
-
-void lookup_page(uint64_t index, int fdpagemap, GHashTable *pages,
-int fdpageflags, int fdpagecount, struct sizestats *stats)
-{
-	uint64_t offset;
-	uint64_t bitbuffer;
-	/*uint8_t pageshift;Bits 55-60 page shift (page size = 1<<page
-	 * shift) currently unused*/
-	struct pagedata *pData = NULL;
-
-	offset = lseek(fdpagemap, index, SEEK_SET);
-	if (offset != index){
-		char buffer[BUFFER_SIZE];
-		sprintf(buffer, "seeking to offset %Ld using index %Ld",
-			 offset, index);
-		handle_errno(buffer);
-	}
-	read(fdpagemap, &bitbuffer, sizeof(uint64_t));
-	handle_errno("reading from file for pagemap");
-
-	printf("%016Lx|", bitbuffer);
-
-	/*pageshift = (bitbuffer & PAGESHIFTBITS) >> PAGESHIFT;
-	printf("%dbytes|", 1 << pageshift);
-	printf("\nbitbuffer & PAGEPRESENT: %016Lx\n",bitbuffer & PAGEPRESENT);
-	*/
-
-	if (bitbuffer & PAGEPRESENT){
-		printf("Present|");
-	}else{
-		printf("Absent|\n");
-		return;
-	}
-
-	if (bitbuffer & PAGESWAPPED){ /*This behaviour cannot be checked at
-					this stage.*/
-		printf("Swapped|");
-	}else{
-		uint64_t pfnbits;
-		printf("Unswapped|");
-		pfnbits = bitbuffer & PFNBITS;
-		pData = g_hash_table_lookup(pages, &pfnbits);
-		if (pData == NULL){
-			pData = malloc(sizeof(*pData));
-			handle_errno("allocating memory for new page info");
-			pData->procmapped = 1;
-			g_hash_table_insert(pages, newkey(pfnbits), pData);
-		}else{
-			pData->procmapped += 1;
-		}
-
-		printf("%Ld|", pfnbits);
-
-		lookup_pagecount(pfnbits, fdpagecount, pData, stats);
-
-		lookup_pageflags(pfnbits, fdpageflags, pData, stats);
-	}
-	printf("\n");
-
-}
-
-/*lookup_pagemap looks up addresses from the start of the VMA to the end.*/
-void lookup_pagemap(uint32_t from, uint32_t to, GHashTable *pages,
-int fdpagemap, int fdpageflags, int fdpagecount, struct sizestats *stats)
-{
-	uint64_t index;
-	size_t pagesize = getpagesize();
-	size_t stepsize = sizeof(uint64_t);
-	size_t fromsize = (from / pagesize) * stepsize;
-	size_t tosize = (to / pagesize) * stepsize;
-
-	for(index = fromsize;index < tosize;index += stepsize)
-		lookup_page(index, fdpagemap, pages, fdpageflags,
-			fdpagecount, stats);
-
 }
 
 void lookup_smaps(pid_t PID, struct sizestats *stats)
@@ -443,7 +238,8 @@ void warn_if_looks_like_pid(const char *str)
 	}
 }
 
-int handle_switch(const char *argv[], int argc, int index, uint8_t *flags, FILE *summary, FILE *detail)
+int handle_switch(const char *argv[], int argc, int index, uint8_t *flags, 
+FILE **summary, FILE **detail)
 {
 /*Checks for which switch it received. Returns how many args to skip because 
  * they have been processed in this function*/
@@ -455,9 +251,9 @@ int handle_switch(const char *argv[], int argc, int index, uint8_t *flags, FILE 
 		}
 		*flags |= FLAG_SUMMARY;
 		if (strcmp(argv[index + 1], "stdout") == 0) {
-			summary = stdout;
+			*summary = stdout;
 		} else {
-			summary = fopen(argv[index + 1], "w");
+			*summary = fopen(argv[index + 1], "w");
 			handle_errno("opening file to write summary to");
 			warn_if_looks_like_pid(argv[index + 1]);
 		}
@@ -470,9 +266,9 @@ int handle_switch(const char *argv[], int argc, int index, uint8_t *flags, FILE 
 		}
 		*flags |= FLAG_DETAIL;
 		if (strcmp(argv[index + 1], "stdout") == 0) {
-			detail = stdout;
+			*detail = stdout;
 		} else {
-			detail = fopen(argv[index + 1], "w");
+			*detail = fopen(argv[index + 1], "w");
 			handle_errno("opening file to write details to");
 			warn_if_looks_like_pid(argv[index + 1]);
 		}
@@ -482,16 +278,16 @@ int handle_switch(const char *argv[], int argc, int index, uint8_t *flags, FILE 
 	}
 }
 
-void add_pid_to_array(pid_t pid, pid_t *pids, uint *pidcount)
+void add_pid_to_array(pid_t pid, pid_t **pids, uint *pidcount)
 {
-	pids = realloc(pids, sizeof(pid_t) * (*pidcount + 1));
-	PIDs = pids; /*Resetting the PIDs pointer, because pids changes*/
+	*pids = realloc(*pids, sizeof(pid_t) * ((*pidcount) + 1));
 	handle_errno("allocating memory for PID array");
-	pids[*pidcount] = pid;
+	(*pids)[*pidcount] = pid;
 	*pidcount += 1;
 }
 
-void handle_args(int argc, const char *argv[], pid_t *pids, uint *pidcount, uint8_t *flags, FILE *summaryfile, FILE *detailfile)
+void handle_args(int argc, const char *argv[], pid_t **pids, uint *pidcount, 
+uint8_t *flags, FILE **summaryfile, FILE **detailfile)
 {
 	int i;
 	pid_t pid;
@@ -535,7 +331,8 @@ void stop_PIDs(pid_t *pids, uint count)
 	}
 }
 
-void print_detail_from_condition(uint32_t condition, const char *yes, const char *no, FILE *file)
+void print_detail_from_condition(uint32_t condition, const char *yes, 
+const char *no, FILE *file)
 {
 	if(condition)
 		fprintf(file, "%s", yes);
@@ -577,11 +374,13 @@ GHashTable *pages, FILE *detail, int fdpageflags, int fdpagecount)
 	if (DEBUG)
 		printf("in use_pfn\n");
 
-	if ((pData == NULL) && (flags & (FLAG_DETAIL | FLAG_SUMMARY))) {
-		pData = malloc(sizeof(*pData));
-		handle_errno("allocating memory for new page info");
-		pData->procmapped = 1;
-		g_hash_table_insert(pages, newkey(pfn), pData);
+	if ((pData == NULL)) {
+		if (flags & (FLAG_DETAIL | FLAG_SUMMARY)) {
+			pData = malloc(sizeof(*pData));
+			handle_errno("allocating memory for new page info");
+			pData->procmapped = 1;
+			g_hash_table_insert(pages, newkey(pfn), pData);
+		}
 	} else {
 		pData->procmapped += 1;
 	}
@@ -601,7 +400,7 @@ GHashTable *pages, FILE *detail, int fdpageflags, int fdpagecount)
 			stats->uss += getpagesize();
 	}
 	if (flags & FLAG_DETAIL)
-		fprintf(detail, "%Lu", bitfield);
+		fprintf(detail, "%Lu,", bitfield);
 	else
 		return;
 	ret = lseek(fdpageflags, index, SEEK_SET);
@@ -612,11 +411,12 @@ GHashTable *pages, FILE *detail, int fdpageflags, int fdpagecount)
 	}
 	read(fdpageflags, &bitfield, sizeof(bitfield));
 	handle_errno("reading kpageflags");
-	
+	printflags(bitfield, detail);
 }
 
 void parse_bitfield(uint64_t bitfield, uint8_t flags, struct sizestats *stats, 
-GHashTable *pages, FILE *detail, int fdpageflags, int fdpagecount, const struct vmastats *vmst)
+GHashTable *pages, FILE *detail, int fdpageflags, int fdpagecount,
+const struct vmastats *vmst)
 {
 	uint64_t pfnbits;
 	if (DEBUG)
@@ -658,7 +458,8 @@ GHashTable *pages, FILE *detail, int fdpageflags, int fdpagecount, const struct 
 	use_pfn(pfnbits, flags, stats, pages, detail, fdpageflags, fdpagecount);
 }
 
-void lookup_pagemap_with_addresses(uint32_t indexfrom, uint32_t indexto, uint8_t flags, struct sizestats *stats, GHashTable *pages, FILE *detail, 
+void lookup_pagemap_with_addresses(uint32_t indexfrom, uint32_t indexto, 
+uint8_t flags, struct sizestats *stats, GHashTable *pages, FILE *detail, 
 int fdpageflags, int fdpagecount, int fdpagemap, const struct vmastats *vmst)
 {
 	size_t entrysize = sizeof(uint64_t);
@@ -666,9 +467,10 @@ int fdpageflags, int fdpagecount, int fdpagemap, const struct vmastats *vmst)
 	uint32_t entryto = indexto * entrysize;
 	uint32_t i;
 	
-	if (DEBUG)
+	if (DEBUG){
 		printf("in lookup_pagemap_with_addresses\n");
-
+		printf("%s,%s\n", vmst->permissions, vmst->path);
+	}
 	for (i = entryfrom; i < entryto; i += entrysize) {
 		uint64_t bitfield;
 		uint32_t o = lseek(fdpagemap, i, SEEK_SET);
@@ -678,7 +480,8 @@ int fdpageflags, int fdpagecount, int fdpagemap, const struct vmastats *vmst)
 			exit(EXIT_FAILURE);
 		}
 		read(fdpagemap, &bitfield, sizeof(bitfield));
-		parse_bitfield(bitfield, flags, stats, pages, detail, fdpageflags, fdpagecount, vmst);
+		parse_bitfield(bitfield, flags, stats, pages, detail, 
+			fdpageflags, fdpagecount, vmst);
 		handle_errno("reading in pagemap");
 	}
 }
@@ -713,7 +516,8 @@ int fdpageflags, int fdpagecount)
 			vmst.permissions);
 		handle_errno("parsing addresses from a line of maps file");
 		if (ret < 3){
-			fprintf(stderr, "Error: Unexpected format of line in" 					"maps.\n");
+			fprintf(stderr, "Error: Unexpected format of line in"
+ 					"maps.\n");
 			exit(EXIT_FAILURE);
 		}
 		if ((pos = strchr(buffer, '/')) != NULL) {
@@ -723,7 +527,9 @@ int fdpageflags, int fdpagecount)
 			strcpy(vmst.path, pos);
 			*strrchr(vmst.path, '\n') = '\0';
 		}
-		printf("path=%s, perm=%s\n", vmst.path, vmst.permissions);
+		if(DEBUG)
+			printf("path=%s, perm=%s\n", vmst.path, 
+							vmst.permissions);
 		lookup_pagemap_with_addresses(addrstart / pagesize, 
 			addrend / pagesize, flags, stats, pages, 
 			detail, fdpageflags, fdpagecount, fdpagemap, &vmst);
@@ -742,6 +548,7 @@ struct sizestats *stats, GHashTable *pages, FILE *summary, FILE *detail)
 
 	int fdpageflags;/* file descriptor for /proc/kpageflags */
 	int fdpagecount;/* ditto for /proc/kpagecount */
+	int i;
 
 	if (DEBUG)
 		printf("in inspect_processes\n");
@@ -754,7 +561,30 @@ struct sizestats *stats, GHashTable *pages, FILE *summary, FILE *detail)
 	fdpagecount = open(pathbuf, O_RDONLY);
 	handle_errno("opening kpagecount file");
 
-	lookup_maps_with_PID(pids[0], flags, stats, pages, detail, fdpageflags, fdpagecount);
+	if (flags | FLAG_DETAIL)
+		fprintf(detail, "permissions,path,present,size,swapped,"
+			"times mapped,locked,referenced,dirty,anonymous,"
+			"swapcache,swapbacked,KSM\n");
+
+	lookup_maps_with_PID(pids[0], flags, stats, pages, 
+		detail, fdpageflags, fdpagecount);
+
+	if (flags | FLAG_SUMMARY) {
+		g_hash_table_foreach(pages, countsss, stats);
+
+		for (i = 1; i < count; i++) {
+			lookup_maps_with_PID(pids[i], 0, stats, pages,
+				detail, fdpageflags, fdpagecount);		
+		}
+
+
+		g_hash_table_foreach(pages, countgss, stats);
+		lookup_smaps(PIDs[0], stats);
+
+		stats->uss /= KBSIZE;
+		stats->gss /= KBSIZE;
+		stats->sss /= KBSIZE;
+	}
 
 	close(fdpageflags);
 	handle_errno("closing kpageflags file");
@@ -765,11 +595,10 @@ struct sizestats *stats, GHashTable *pages, FILE *summary, FILE *detail)
 
 int main(int argc, const char *argv[])
 {
-	FILE *filemaps = NULL; /* File stream pointer for /proc/PID/maps */
 	FILE *summaryfile = NULL;
 	FILE *detailfile = NULL;
 
-	uint8_t flags; /*Bit field for storing options as flags*/
+	uint8_t flags = 0; /*Bit field for storing options as flags*/
 
 	/* Hash table used to store information about individual pages */
 	GHashTable *pages = g_hash_table_new_full(g_int64_hash,
@@ -795,30 +624,27 @@ int main(int argc, const char *argv[])
 			"\t'-d FILENAME' to get per-page details\n", argv[0]); 
 		exit(EXIT_FAILURE);
 	}
-	handle_args(argc, argv, PIDs, &PIDcount, 
-		&flags, summaryfile, detailfile);
-	printf("printing to stdout\n");
+
+	handle_args(argc, argv, &PIDs, &PIDcount, 
+		&flags, &summaryfile, &detailfile);
+
 	stop_PIDs(PIDs, PIDcount);
+
 	if (DEBUG)
 		printf("about to enter inspect_processes\n");
+
 	inspect_processes(PIDs, PIDcount, flags, &stats,
 		pages, summaryfile, detailfile);
-	printf("inspected processes\n");
-	fclose(filemaps);
-	handle_errno("closing maps file");
 
-	g_hash_table_foreach(pages, countsss, &stats);
-	lookup_other_PIDs(PIDs, PIDcount, pages);
-	g_hash_table_foreach(pages, countgss, &stats);
-	lookup_smaps(PIDs[0], &stats);
-	stats.uss /= KBSIZE;
-	stats.gss /= KBSIZE;
-	stats.sss /= KBSIZE;
-	printsummary(&stats);
-	cleanup(0);
+	if (DEBUG)
+		printf("inspected processes\n");
+
+	if (flags | FLAG_SUMMARY)
+		write_summary(&stats, summaryfile);
 
 	fclose(detailfile);
 	fclose(summaryfile);
+	cleanup(0);
 	free(PIDs);
 
 	exit(0);
