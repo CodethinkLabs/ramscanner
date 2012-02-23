@@ -1,4 +1,4 @@
-DESCRIPTION:
+SYNOPSIS:
 Ramscanner tool - collects information about a process using: 
 /proc/PID/maps
 /proc/PID/smaps
@@ -7,19 +7,72 @@ Ramscanner tool - collects information about a process using:
 /proc/kpageflags
 
 USAGE:
-ramscanner [PIDs]
-As arguments, the first PID it receives will be stopped, interrogated using the proc files, then signalled to continue.
-All other PIDs received will also be stopped, and used to calculate Gss (see below), then signalled to continue.
+ramscanner [PIDs] [flags]
 
-Prints summary of information for the process
-Vss: Amount of memory addressed in memory map
-Rss: Amount of memory memory-mapped in RAM
-Pss: Amount of memory per page divided by number of times mapped
-Uss: Amount of memory unique to the process (only mapped once)
-Sss: Amount of memory only mapped within the process
-Gss: Amount of memory only mapped by the processes specified as arguments to this program
-Referenced: Amount of memory in pages referenced
-Swap: Amount of memory mapped to a swap file/partition
-Anonymous: Amount of memory without an associated file
-Locked: Amount of memory locked
+ARGUMENTS:
+The first PID specified is the primary process. It will be inspected in detail.
+The othe PIDs specified are the primary processes. They are only inspected to return GSS
+flag -s FILENAME specifies that ramscanner will return a summary to the file specified.
+flag -d FILENAME specifies that ramscanner will return a description to the file specified.
+If FILENAME is "stdout" it will be printed to standard output.
+
+DESCRIPTION:
+Stops primary and secondary processes to interrogate them, and re-starts them on successful completion of the program, or on receiving a SIGINT or SIGTERM signal.
+
+OUTPUT:
+If -s is specified, it will print a summary of format
+	Vss, 		    97608 kB
+	Rss, 		    25624 kB
+	Pss, 		    14383 kB
+	Uss, 		    13248 kB
+	Sss, 		    13248 kB
+	Gss, 		    13248 kB
+	Referenced, 	    25624 kB
+	Swap, 		        0 kB
+	Anonymous, 	    11980 kB
+	Locked, 	        0 kB
+to the summary file.
+
+If -d is specified, it will print details of each page in the primary process in comma-separated format
+	permissions,path,present,size,swapped,times mapped,locked,referenced,dirty,anonymous,swapcache,swapbacked,KSM
+	r-xp,/lib/i386-linux-gnu/libm-2.13.so,present,4096 B,unswapped,48,,referenced,,,,,,
+to the summary file.
+
+TERMINOLOGY:
+PRIMARY PROCESS - The first process specified as an argument to this program by PID in the command line. Inspection of how much memory is being used is carried out on this process.
+SECONDARY PROCESS - The processes specified after the first PID in command line. Secondary processes are stopped alongside the primary process while the program is running, and are used to calculate the Group Set Size (GSS)
+
+PAGE - The smallest unit of memory the memory manager works with, typically 4kB.
+SWAPPING - To avoid the computer locking up when it nears the limit of its physical memory, the memory manager can store pages of memory in a swap file or partition until it is needed.
+DIRTY PAGE - A page that has been modified.
+A page may contain information copied from a pre-existing file, needed for reference. When the memory manager unloads this page it can delete the data, knowing it can re-copy information from its source.
+However, if the page has been modified, then that modification must be tracked. The page is marked as dirty, and when the memory manager unloads the page it stores a copy of it in the swap file so that it can be retrieved.
+MEMORY MAP - Every process has its own memory map allowing it to refer to areas of memory.
+It contains a list of Virtual Memory Areas (VMAs).
+VIRTUAL MEMORY AREA (VMA) - describe separate objects the process needs access to.
+Each VMA contains a range of memory addresses it can look up pages in, the permissions the memory is accessible by (Reading, Writing, Execution and Shared/Private) and the file it may refer to.
+It may contain a path to the file it refers to, or it may be anonymous.
+PAGE MAP - Each memory address the VMA contains points to an entry in the page map. This details whether a page exists, how large it is, whether it exists in RAM or on swap.
+If it exists in RAM, it contains Page Frame Number (PFN) which is used to refer to an array of all the pages held on the computer. If it is in swap, it contains some flags about the swap page, and a swap offset.
+For more details, see Linux/Documentation/vm/pagemap.txt
+Page Frame Number (PFN) - A numerical index into the pagefile. This program uses the PFN to access information about the page in /proc/kpageflags and /proc/kpagecount.
+KPAGEFLAGS - A proc file which prints information about the flags set on each page in 64-bit chunks.
+The flags reported by this program are Locked, Referenced, Dirty, Anonymous, Swapcache, Swapbacked and KSM.
+As printed in linux/Documentation/vm/pagemap:
+	LOCKED - page is being locked for exclusive access, eg. by undergoing read/write IO
+	REFERENCED - page has been referenced since last LRU list enqueue/requeue
+	DIRTY - page has been written to, hence contains new data
+	ANON - a memory mapped page that is not part of a file
+	SWAPCACHE - page is mapped to swap space, ie. has an associated swap entry
+	SWAPBACKED - page is backed by swap/RAM
+	KSM - identical memory pages dynamically shared between one or more processes
+KPAGECOUNT - A proc file which prints information about the number of times the page has been mapped.
+
+VIRTUAL SET SIZE (VSS) - The amount of memory addressed by a process. This includes addresses that point to non-existent pages.
+RESIDENT SET SIZE (RSS) - The amount of memory that points to pages in RAM.
+PROPORTIONAL SET SIZE (PSS) - An indicator of how much memory is shared by this process. A sum of every page mapped, divided by the total number of times it has been mapped.
+UNIQUE SET SIZE (USS) - The amount of memory mapped by the process that is only mapped once. It is a good indicator of how much memory would be freed if the process is killed.
+SELF SET SIZE (SSS) - The amount of memory mapped only by this process. Differs from USS if the same process accesses the page multiple times.
+GROUP SET SIZE (GSS) - The amount of memory mapped by the primary process which is not mapped by processes other than the Primary or Secondary processes. It is not an indicator of how much memory would be freed if the primary and secondary processes are stopped, but is a good indicator of how much memory the primary process shares with the secondary processes.
+REFERENCED - Amount of memory in pages referenced
 
