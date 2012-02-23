@@ -2,16 +2,20 @@
 
 #include<stdio.h>
 #include<stdlib.h>
-#include<linux/limits.h>
-#include<errno.h>
-#include<unistd.h>
-#include<fcntl.h>
-#include<glib.h>
-#include<sys/types.h>
-#include<signal.h>
-#include<stdint.h>
 #include<string.h>
+
+#include<errno.h>
+
+#include<linux/limits.h>
+#include<stdint.h>
+#include<sys/types.h>
+#include<unistd.h>
 #include<ctype.h>
+
+#include<fcntl.h>
+#include<signal.h>
+
+#include<glib.h>
 
 #define BUFFER_SIZE 256 /*Size of buffers pre-defined as quite large, for 
 			 *lack of knowing exactly what size they need to be*/
@@ -109,61 +113,63 @@ void cleanup(int signal)
 void write_summary(struct sizestats *stats, FILE* summaryfile)
 {
 	fprintf( summaryfile,
-		"Vss, \t\t %8u kB\n"
-		"Rss, \t\t %8u kB\n"
-		"Pss, \t\t %8u kB\n"
-		"Uss, \t\t %8u kB\n"
-		"Sss, \t\t %8u kB\n"
-		"Gss, \t\t %8u kB\n"
-		"Referenced, \t %8u kB\n"
-		"Swap, \t\t %8u kB\n"
-		"Anonymous, \t %8u kB\n"
-		"Locked, \t %8u kB\n",
+		"Type,         Size(kB)\n"
+		"Vss,          %8u\n"
+		"Rss,          %8u\n"
+		"Pss,          %8u\n"
+		"Uss,          %8u\n"
+		"Sss,          %8u\n"
+		"Gss,          %8u\n"
+		"Referenced,   %8u\n"
+		"Swap,         %8u\n"
+		"Anonymous,    %8u\n"
+		"Locked,       %8u\n",
 		stats->vss, stats->rss, stats->pss, stats->uss, stats->sss,
 		stats->gss, stats->refd, stats->swap, stats->anon,
 		stats->locked);
 }
 
+int fill_size_for_smaps_field(char * buff, const char *str, uint *val, 
+FILE *file)
+{
+	size_t n = 0;
+	int temp;
+	if (strstr(buff, str)){
+		getline(&buff, &n, file);
+		if (sscanf (buff, "%d", &temp) > 0) {
+			*val += temp;
+			return 1;
+		} else {
+			return 0;
+		}
+	} else {
+		return 0;
+	}
+}
+
 void parse_smaps_file(FILE *file, struct sizestats *stats)
 {
-/*Extracts numerical data from the smaps file. HIGHLY dependent on the format
- *of smaps output staying the same*/
-	int ret = 0;
-	int temp=0;
+/*Extracts numerical data from the smaps file. Depends on the format staying as
+ * Type:   [val] kB*/
 	char buffer[BUFFER_SIZE];
 	char *pt = buffer;
 	size_t n = 0;
-	ret = getline(&pt, &n, file);
-
-	while(ret > 0){
-	getdelim(&pt, &n, ':', file);
-	fscanf(file,"%d kB\n", &temp);
-		stats->vss += temp;
-	getdelim(&pt, &n, ':', file);
-	fscanf(file,"%d kB\n", &temp);
-		stats->rss += temp;
-	getdelim(&pt, &n, ':', file);
-	fscanf(file,"%d kB\n", &temp);
-		stats->pss += temp;
-	getdelim(&pt, &n, ':', file);
-	getdelim(&pt, &n, ':', file);
-	getdelim(&pt, &n, ':', file);
-	getdelim(&pt, &n, ':', file);
-	getdelim(&pt, &n, ':', file);
-	fscanf(file,"%d kB\n", &temp);
-		stats->refd += temp;
-	getdelim(&pt, &n, ':', file);
-	fscanf(file,"%d kB\n", &temp);
-		stats->anon += temp;
-	getdelim(&pt, &n, ':', file);
-	fscanf(file,"%d kB\n", &temp);
-		stats->swap += temp;
-	getdelim(&pt, &n, ':', file);
-	getdelim(&pt, &n, ':', file);
-	getdelim(&pt, &n, ':', file);
-	fscanf(file,"%d kB\n", &temp);
-		stats->locked += temp;
-	ret = getline(&pt, &n, file);
+	while (getdelim(&pt, &n, ':', file) > 0) {
+		if(fill_size_for_smaps_field(pt, "Size", 
+			&(stats->vss), file)) {
+		} else if(fill_size_for_smaps_field(pt, "Pss", 
+			&(stats->pss), file)) {
+		} else if(fill_size_for_smaps_field(pt, "Rss", 
+			&(stats->rss), file)) {
+		} else if(fill_size_for_smaps_field(pt, "Referenced", 
+			&(stats->refd), file)) {
+		} else if(fill_size_for_smaps_field(pt, "Anonymous", 
+			&(stats->anon), file)) {
+		} else if(fill_size_for_smaps_field(pt, "Swap", 
+			&(stats->swap), file)) {
+		} else if(fill_size_for_smaps_field(pt, "Locked", 
+			&(stats->locked), file)) {
+		}
 	}
 }
 
