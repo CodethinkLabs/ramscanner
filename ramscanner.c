@@ -97,7 +97,7 @@
 #define DETAIL_PERMTITLE "permissions"
 #define DETAIL_PATHTITLE "path"
 #define DETAIL_PRESENTTITLE "present"
-#define DETAIL_SIZETITLE "size kB"
+#define DETAIL_SIZETITLE "size B"
 #define DETAIL_SWAPTITLE "swap"
 #define DETAIL_MAPPEDTITLE "times mapped"
 #define DETAIL_LOCKEDTITLE "locked"
