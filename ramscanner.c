@@ -148,7 +148,6 @@
 #define FLAG_SUMMARY 1/*Bit mask for flags bit-field, whether to give summary*/
 #define FLAG_DETAIL 2/*as above, for whether to give details per-page*/
 
-#define DEBUG 0
 
 
 
@@ -208,8 +207,6 @@ void cleanup(int signal)
 	int i = 0;
 	for (i=0; i< PIDcount; i++)
 		kill(PIDs[i], SIGCONT);/*Clears the queue of STOP signals.*/
-	if (DEBUG)
-		printf("Program terminated successfully\n");
 	exit(0);
 }
 
@@ -468,8 +465,6 @@ void stop_PIDs(const pid_t *pids, uint count)
 	for (i = 0; i < count; i++) {
 		kill(pids[i], SIGSTOP);/*SIGSTOP overrides signal
 					*handling, consider SIGSTP*/
-		if (DEBUG) 
-			printf("Stopping process %u\n", pids[i]);
 
 		handle_errno("stopping process");
 	}
@@ -533,9 +528,6 @@ GHashTable *pages, FILE *const detail, int fdpageflags, int fdpagecount)
 
 	struct pagedata *pData = NULL;
 	pData = g_hash_table_lookup(pages, &pfn);
-
-	if (DEBUG)
-		printf("in use_pfn\n");
 
 	if ((pData == NULL)) {
 
@@ -611,22 +603,13 @@ const struct vmastats *vmst)
 
 	uint64_t pfnbits;
 
-	if (DEBUG)
-		printf("in parse_bitfield\n");
-
 	if (flags & FLAG_DETAIL)
 		fprintf(detail, "%s,%s,", vmst->permissions, vmst->path);
-	if (DEBUG)
-		printf("about to check present\n");
 	if (!(bitfield & PAGEPRESENT)) {
 		if (flags & FLAG_DETAIL)
 			fprintf(detail, DETAIL_NOPRESENT"\n");
-		if (DEBUG)
-			printf("page not present\n");
 		return;
 	}
-	if (DEBUG)
-		printf("page present\n");
 	if (flags & FLAG_DETAIL) {
 		uint64_t pageshift;
 
@@ -640,15 +623,12 @@ const struct vmastats *vmst)
 		/*Omitting swap type and swap offset information*/
 		if (flags & FLAG_DETAIL)
 			fprintf(detail, DETAIL_YESSWAP"\n");
-		if (DEBUG)
-			printf("page swapped\n");
 		return;
 	}
 	if (flags & FLAG_DETAIL)
 		fprintf(detail, DETAIL_NOSWAP DELIMITER);
 	pfnbits = bitfield & PFNBITS;
-	if (DEBUG)
-		printf("about to use pfn\n");
+
 	use_pfn(pfnbits, flags, stats, pages, detail, fdpageflags, fdpagecount);
 }
 
@@ -668,10 +648,6 @@ int fdpageflags, int fdpagecount, int fdpagemap, const struct vmastats *vmst)
 
 	uint32_t i;
 	
-	if (DEBUG){
-		printf("in lookup_pagemap_with_addresses\n");
-		printf("%s,%s\n", vmst->permissions, vmst->path);
-	}
 	for (i = entryfrom; i < entryto; i += entrysize) {
 		uint64_t bitfield;
 
@@ -711,9 +687,6 @@ int fdpageflags, int fdpagecount)
 	char *pos = NULL;
 	size_t pagesize = getpagesize();
 
-	if (DEBUG)
-		printf("in lookup_maps_with_PID\n");
-
 	sprintf(pathbuf, "%s/%u/%s", PROC_PATH, pid, MAPS_FILENAME);
 	filemaps = fopen(pathbuf, "r");
 	handle_errno("opening maps file");
@@ -750,9 +723,6 @@ int fdpageflags, int fdpagecount)
 			*newlinepos = '\0';
 		}
 
-		if(DEBUG)
-			printf("path=%s, perm=%s\n", vmst.path, 
-							vmst.permissions);
 		lookup_pagemap_with_addresses(addrstart / pagesize, 
 		                              addrend / pagesize, flags, stats,
 		                              pages, detail, fdpageflags, 
@@ -780,9 +750,6 @@ struct sizestats *stats, GHashTable *pages,FILE *const summary,FILE *const detai
 	int fdpageflags;/* file descriptor for /proc/kpageflags */
 	int fdpagecount;/* ditto for /proc/kpagecount */
 	int i;
-
-	if (DEBUG)
-		printf("in inspect_processes\n");
 
 	sprintf(pathbuf, "%s/%s", PROC_PATH, KPAGEFLAGS_FILENAME);
 	fdpageflags = open(pathbuf, O_RDONLY);
@@ -880,17 +847,11 @@ int main(int argc, const char *argv[])
 
 	stop_PIDs(PIDs, PIDcount);
 
-	if (DEBUG)
-		printf("about to enter inspect_processes\n");
-
 	if (flags & (FLAG_SUMMARY | FLAG_DETAIL))
 		inspect_processes(PIDs, PIDcount, flags, &stats,
 		                  pages, summaryfile, detailfile);
 	else
 		printf("%s must specify at least one of -s and -d\n", argv[0]);
-
-	if (DEBUG)
-		printf("inspected processes\n");
 
 	if (flags & FLAG_SUMMARY)
 		write_summary(&stats, summaryfile);
