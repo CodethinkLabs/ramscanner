@@ -188,8 +188,11 @@ uint PIDcount = 0;
 
 
 
-void * newkey(uint64_t key)/*The key is a 54-bit long PFN*/
-{ 
+void * newkey(uint64_t key)
+{
+/* Allocates, sets with value "key" and returns a void pointer for the hash 
+ * table. This function is used with a 54-bit integer, the PFN
+ */
 	uint64_t *temp = malloc(sizeof(*temp));
 	*temp = key;
 	return temp;
@@ -210,7 +213,7 @@ void cleanup(int signal)
 	exit(0);
 }
 
-void write_summary(struct sizestats *stats, FILE* summaryfile)
+void write_summary(const struct sizestats *stats, FILE *const summaryfile)
 {
 	fprintf( summaryfile,
 		"Type" DELIMITER "         Size(kB)\n"
@@ -230,7 +233,7 @@ void write_summary(struct sizestats *stats, FILE* summaryfile)
 }
 
 int fill_size_for_smaps_field(char * buff, const char *str, uint *val, 
-FILE *file)
+FILE *const file)
 {
 /*
  *Tries to find the string str in buff. If it does, it gets the rest of the line
@@ -252,7 +255,7 @@ FILE *file)
 	}
 }
 
-void parse_smaps_file(FILE *file, struct sizestats *stats)
+void parse_smaps_file(FILE *const file, struct sizestats *stats)
 {
 /*
  * Extracts numerical data from the smaps file. Depends on the format staying as
@@ -459,7 +462,7 @@ void set_signals()
 	}
 }
 
-void stop_PIDs(pid_t *pids, uint count)
+void stop_PIDs(const pid_t *pids, uint count)
 {
 	int i;
 	for (i = 0; i < count; i++) {
@@ -473,7 +476,7 @@ void stop_PIDs(pid_t *pids, uint count)
 }
 
 void print_detail_from_condition(uint32_t condition, const char *truestring, 
-const char *falsestring, FILE *file)
+const char *falsestring, FILE *const file)
 {
 	if(condition)
 		fprintf(file, "%s", truestring);
@@ -481,7 +484,7 @@ const char *falsestring, FILE *file)
 		fprintf(file, "%s", falsestring);
 } 
 
-void print_flags(uint64_t bitfield, FILE *detail)
+void print_flags(uint64_t bitfield, FILE *const detail)
 {
 	print_detail_from_condition(bitfield & PAGEFLAG_LOCKED,
 	                            DETAIL_YESLOCKED DELIMITER, 
@@ -508,7 +511,7 @@ void print_flags(uint64_t bitfield, FILE *detail)
 }
 
 void use_pfn(uint64_t pfn, uint8_t flags, struct sizestats *stats, 
-GHashTable *pages, FILE *detail, int fdpageflags, int fdpagecount)
+GHashTable *pages, FILE *const detail, int fdpageflags, int fdpagecount)
 {
 /*
  * Looks up the hash table of pages to see if this page has been mapped before.
@@ -593,7 +596,7 @@ GHashTable *pages, FILE *detail, int fdpageflags, int fdpagecount)
 }
 
 void parse_bitfield(uint64_t bitfield, uint8_t flags, struct sizestats *stats, 
-GHashTable *pages, FILE *detail, int fdpageflags, int fdpagecount,
+GHashTable *pages, FILE *const detail, int fdpageflags, int fdpagecount,
 const struct vmastats *vmst)
 {
 /*
@@ -650,7 +653,7 @@ const struct vmastats *vmst)
 }
 
 void lookup_pagemap_with_addresses(uint32_t indexfrom, uint32_t indexto, 
-uint8_t flags, struct sizestats *stats, GHashTable *pages, FILE *detail, 
+uint8_t flags, struct sizestats *stats, GHashTable *pages, FILE *const detail, 
 int fdpageflags, int fdpagecount, int fdpagemap, const struct vmastats *vmst)
 {
 /*
@@ -688,7 +691,7 @@ int fdpageflags, int fdpagecount, int fdpagemap, const struct vmastats *vmst)
 }
 
 void lookup_maps_with_PID(pid_t pid, uint8_t flags, 
-struct sizestats *stats, GHashTable *pages, FILE *detail, 
+struct sizestats *stats, GHashTable *pages,FILE *const detail, 
 int fdpageflags, int fdpagecount)
 {
 /*
@@ -762,8 +765,8 @@ int fdpageflags, int fdpagecount)
 	handle_errno("closing pagemap file");
 }
 
-void inspect_processes(pid_t *pids, uint count, uint8_t flags, 
-struct sizestats *stats, GHashTable *pages, FILE *summary, FILE *detail)
+void inspect_processes(const pid_t *pids, uint count, uint8_t flags, 
+struct sizestats *stats, GHashTable *pages,FILE *const summary,FILE *const detail)
 {
 /* 
  * Function to do most of the hard work. flags tell it what to do, and pids
