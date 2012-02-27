@@ -5,7 +5,7 @@ all:
 	gcc -o ramscanner ramscanner.c $(CFLAGS) $(LIBS) -Wall
 
 debug: 
-	gcc -o ramscanner ramscanner.c $(CFLAGS) $(LIBS) -Wall-g
+	gcc -o ramscanner ramscanner.c $(CFLAGS) $(LIBS) -Wall -g
 
 
 clean:

@@ -1,189 +1,163 @@
 #define _LARGEFILE64_SOURCE
 
-#include<stdio.h>
-#include<stdlib.h>
-#include<string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <ctype.h>
+#include <errno.h>
 
-#include<errno.h>
+#include <linux/limits.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <signal.h>
 
-#include<linux/limits.h>
-#include<stdint.h>
-#include<sys/types.h>
-#include<unistd.h>
-#include<ctype.h>
+#include <glib.h>
 
-#include<fcntl.h>
-#include<signal.h>
-
-#include<glib.h>
-
-
-
-#define BUFFER_SIZE 256 /* Size of buffers pre-defined as quite large, for 
-                         * lack of knowing exactly what size they need to be*/
-
-/*
+#include "ramscanner_literals.h"
+/**
  * Bit masks used in pagemap. See documentation/vm/pagemap.txt 
- * for a full list of bits
+ * for a full list of bits.
+ * PAGESHIFT     : The number of bits that need to be shifted down to express the
+ *                 pageshift as a number.
+ * PAGEPRESENT   : Bit 63 is page present.
+ * PAGESWAPPED   : Bit 62 is page swapped.
+ * PFNBITS       : Bits 0-54 store the page frame number if not swapped.
+ * PAGEBITS      : Number of bits which pageshift is store in.
+ * PAGESHIFTBITS : Bits 55-60 page shift (page size = 1 << pageshift).
  */
-#define PAGEPRESENT   0x8000000000000000 /* Bit 63 is page present*/
-#define PAGESWAPPED   0x4000000000000000 /* Bit 62 is page swapped*/
-#define PFNBITS       0x007FFFFFFFFFFFFF /* Bits 0-54 store the page frame
-                                          * number if page present and not
-                                          * swapped*/
-#define PAGESHIFTBITS 0x1F80000000000000 /* Bits 55-60 page shift 
-                                          * (page size = 1<<page shift)*/
-/*
- * Bit masks used in kpageflags. See documentation/vm/pagemap.txt for details
+#define PAGESHIFT     55
+#define PAGEPRESENT   (1LL << 63)
+#define PAGESWAPPED   (1LL << 62)
+#define PFNBITS       ((1LL << 55) - 1) 
+#define PAGEBITS      6
+#define PAGESHIFTBITS (((1LL << PAGEBITS) - 1) << PAGESHIFT)
+
+/**
+ * Bit masks used in kpageflags. See documentation/vm/pagemap.txt for details.
+ * PAGEFLAG_LOCKED     : Bit 0 is locked.
+ * PAGEFLAG_REFERENCED : Bit 2 is referenced.
+ * PAGEFLAG_DIRTY      : Bit 4 is dirty.
+ * PAGEFLAG_ANON       : Bit 12 is anonymous.
+ * PAGEFLAG_SWAPCACHE  : Bit 13 is swapcache.
+ * PAGEFLAG_SWAPBACKED : Bit 14 is swapbacked.
+ * PAGEFLAG_KSM        : Bit 21 is KSM - identical memory pages dynamically
+ *                                       shared between one or more processes.
  */
-#define PAGEFLAG_LOCKED 0x1 /* Bit 0 is locked*/
-#define PAGEFLAG_REFERENCED 0x4 /* Bit 2 is referenced*/
-#define PAGEFLAG_DIRTY 0x10 /* Bit 4 is dirty*/
-#define PAGEFLAG_ANON 0x1000 /* Bit 12 is anonymous*/
-#define PAGEFLAG_SWAPCACHE 0x2000 /* Bit 13 is swapcache*/
-#define PAGEFLAG_SWAPBACKED 0x4000 /* Bit 14 is swapbacked*/
-#define PAGEFLAG_KSM 0x200000 /* Bit 21 is KSM: identical memory pages 
-                               * dynamically shared between one or more
-                               * processes*/
-
-#define PAGESHIFT 55 /* The number of bits that need to be shifted down to
-                      * express the pageshift as a number*/
+#define PAGEFLAG_LOCKED     (1 << 0)
+#define PAGEFLAG_REFERENCED (1 << 2)
+#define PAGEFLAG_DIRTY 	    (1 << 4)
+#define PAGEFLAG_ANON       (1 << 12)
+#define PAGEFLAG_SWAPCACHE  (1 << 13)
+#define PAGEFLAG_SWAPBACKED (1 << 14)
+#define PAGEFLAG_KSM        (1 << 21)
 
 
-#define KBSIZE 1024 /* The number of bytes in a kilobyte. Defined to avoid magic
-                     * numbers
+
+#define KBSIZE 1024 /** 
+                     * The number of bytes in a kilobyte. Defined to avoid
+                     * magic numbers.
                      */
 
-/*
- * Macros used in parsing smaps.
- */
-#define SMAPS_VSS "Size"
-#define SMAPS_RSS "Rss"
-#define SMAPS_PSS "Pss"
-#define SMAPS_REFD "Referenced"
-#define SMAPS_ANON "Anonymous"
-#define SMAPS_SWAP "Swap"
-#define SMAPS_LOCKED "Locked"
-
-/*
- * Macros used in printing the summary.
- */
-#define SUMMARY_VSS "Vss"
-#define SUMMARY_RSS "Rss"
-#define SUMMARY_PSS "Pss"
-#define SUMMARY_USS "Uss"
-#define SUMMARY_SSS "Sss"
-#define SUMMARY_GSS "Gss"
-#define SUMMARY_REFD "Referenced"
-#define SUMMARY_SWAP "Swap"
-#define SUMMARY_ANON "Anonymous"
-#define SUMMARY_LOCKED "Locked"
-
-/*
- * Path macros for accessing the proc files. Defined here so that changes are
- * easier to account for
- */
-#define PROC_PATH "/proc"
-#define KPAGEFLAGS_FILENAME "kpageflags"
-#define KPAGECOUNT_FILENAME "kpagecount"
-#define MAPS_FILENAME "maps"
-#define SMAPS_FILENAME "smaps"
-#define PAGEMAP_FILENAME "pagemap"
-
-/*
- * Macros used in printing the details' title.
- */
-
-#define DETAIL_PERMTITLE "permissions"
-#define DETAIL_PATHTITLE "path"
-#define DETAIL_PRESENTTITLE "present"
-#define DETAIL_SIZETITLE "size B"
-#define DETAIL_SWAPTITLE "swap"
-#define DETAIL_MAPPEDTITLE "times mapped"
-#define DETAIL_LOCKEDTITLE "locked"
-#define DETAIL_REFDTITLE "referenced"
-#define DETAIL_DIRTYTITLE "dirty"
-#define DETAIL_ANONTITLE "anonymous"
-#define DETAIL_SWAPCACHETITLE "swapcache"
-#define DETAIL_SWAPBACKEDTITLE "swapbacked"
-#define DETAIL_KSMTITLE "KSM"
-
-/*
- * Macros used in printing the details.
- */
-#define DETAIL_YESPRESENT "present"
-#define DETAIL_NOPRESENT "absent"
-
-#define DETAIL_YESSWAP "swapped"
-#define DETAIL_NOSWAP "unswapped"
-
-#define DETAIL_YESLOCKED "locked"
-#define DETAIL_NOLOCKED ""
-
-#define DETAIL_YESREFD "referenced"
-#define DETAIL_NOREFD ""
-
-#define DETAIL_YESDIRTY "dirty"
-#define DETAIL_NODIRTY ""
-
-#define DETAIL_YESANON "anonymous"
-#define DETAIL_NOANON ""
-
-#define DETAIL_YESSWAPCACHE "swapcached"
-#define DETAIL_NOSWAPCACHE ""
-
-#define DETAIL_YESSWAPBACKED "swapbacked"
-#define DETAIL_NOSWAPBACKED ""
-
-#define DETAIL_YESKSM "ksm"
-#define DETAIL_NOKSM ""
-
-
-/*
+/**
  * User-made bit masks for setting the flags. These are used if the flag is set
- * in command-line args
+ * in command-line args.
+ */
+#define FLAG_SUMMARY 1 /* Bit mask for flags bit-field, whether to give summary */
+#define FLAG_DETAIL 2  /* as above, for whether to give details per-page */
+
+
+/**
+ * Sizestats holds information about the memory used by the process in
+ * different ways.
  */
 
-#define DELIMITER ","
-#define FLAG_SUMMARY 1/*Bit mask for flags bit-field, whether to give summary*/
-#define FLAG_DETAIL 2/*as above, for whether to give details per-page*/
+typedef struct {
+	uint32_t vss;    /**< Virtual set size: The sum of memory with  
+                          *   addresses in the primary process' memory map.
+                          */
+	uint32_t rss;    /**< Resident set size: The sum of memory which has 
+                          *   pages allocated.
+                          */
+	uint32_t pss;    /**< Proportional set size: A weighted indicator of 
+                          *   how much memory is shared by this process. If a 
+                          *   process had 1000 kB only mapped once, and 1000  
+                          *   kB mapped twice (itself and another process),  
+                          *   then the total would be 1500 kB.
+                          */
+	uint32_t uss;    /**< Unique set size: The sum of memory which is only
+                          *   mapped once by the primary process.
+                          */
+	uint32_t sss;    /**< Self set size: The sum of memory only mapped 
+                          *   within the process, but mapped any number of
+                          *   times.
+                          */
+	uint32_t gss;    /**< Group set size: The sum of memory mapped by the 
+                          *   primary process and only shared with the 
+                          *   secondary processes.
+                          */
+	uint32_t refd;   /**< Referenced: The sum of memory in RAM recently
+                          *   accessed by any process. This information is  
+                          *   used by the LRU.
+                          */
+	uint32_t swap;   /**< Swapped: The sum of memory that exists in a swap 
+                          *   file or partition.
+                          */
+	uint32_t anon;   /**< Anonymous: The sum of memory that is not 
+                          *   associated with a file.
+                          */
+	uint32_t locked; /**< Locked: The sum of memory that has been locked 
+                          *   by a process
+                          */
+} sizestats;
+
+/**
+ * Page data : Information stored about the individual page
+ */
+typedef struct {
+	uint32_t memmapped;  /**< Internal store of how many times this page has
+			      *   been mapped by the memory manager (i.e. all
+                              *   processes)
+                              */
+	uint32_t procmapped; /**< Internal store of how many times this page has
+			      *   been mapped by the PIDs defined
+                              */
+} pagedata;
+/**
+ * Information stored about the current VMA being worked in
+ */
+typedef struct {
+	char permissions[5]; /**< A 4-character (plus null-terminator) string
+                              *   containing the permissions r, w, x and p/s
+                              */
+	char path[PATH_MAX]; /**< A string containing the path to the file the
+                              *   VMA is associated with, or [heap], [stack],
+                              *   etc.
+                              */
+} vmastats;
+/**
+ * All the information stored about how to run the program.
+ */
+typedef struct {
+	uint8_t summary;           /**< Program will print a summary */
+	uint8_t detail;            /**< Program will print full details */
+	uint8_t compactdetail;     /**< Program will print compact details */
+	FILE *summaryfile;         /**< The file to print summary to */
+	FILE *detailfile;          /**< The file to print details to */
+	FILE *compactdetailfile;   /**< The file to print compact details to */
+	pid_t *pids;               /**< The list of PIDs to work with, first
+	                            *   element is the primary PID, all others
+                                    *   are secondary PIDs
+                                    */
+	uint16_t pidcount;         /**< The number of PIDs */
+} options;
 
 
 
-
-struct sizestats{
-	uint vss; /*Amount of memory kB addressed in memory map*/
-	uint rss; /*Amount of memory kB memory-mapped in RAM*/
-	uint pss; /*Amount of memory kB per page divided by number of 
-		   *times mapped*/
-	uint uss; /*Amount of memory kB unique to the process 
-		   *(only mapped once)*/
-	uint sss; /*Amount of memory kB only mapped within the process*/
-	uint gss; /*Amount of memory kB only mapped by the processes
-	 	   *specified as arguments to this program*/
-	uint refd;/*Amount of memory kB in pages referenced*/
-	uint swap;/*Amount of memory kB mapped to a swap file/partition*/
-	uint anon;/*Amount of memory kB without an associated file*/
-	uint locked;/*Amount of memory kB locked*/
-};
-
-struct pagedata {
-	uint memmapped; /*Internal store of how many times this page has
-			 *been mapped by the memory manager*/
-	uint procmapped;/*Internal store of how many times this page has
-			 *been mapped by the PIDs defined*/
-};
-
-struct vmastats {
-	char permissions[5];
-	char path[BUFFER_SIZE];
-};
-
-
-
-pid_t *PIDs = NULL;/*Global array of PIDs used, so that they can be restarted if
-	      *the program is told to terminate early*/
-uint PIDcount = 0;
+pid_t *PIDs = NULL; /* Global array of PIDs used, so that they can be restarted
+	             * if the program is told to terminate early */
+uint16_t PIDcount = 0;
 
 
 
@@ -206,27 +180,24 @@ void cleanup(int signal)
 {
 	int i = 0;
 	for (i=0; i< PIDcount; i++)
-		kill(PIDs[i], SIGCONT);/*Clears the queue of STOP signals.*/
+		kill(PIDs[i], SIGCONT); /* Clears the queue of STOP signals */
 	exit(0);
 }
 
-void write_summary(const struct sizestats *stats, FILE *const summaryfile)
+void write_summary(const sizestats *stats, FILE *summary)
 {
-	fprintf( summaryfile,
-		"Type" DELIMITER "         Size(kB)\n"
-		SUMMARY_VSS  DELIMITER "          %8u\n"
-		SUMMARY_RSS  DELIMITER "          %8u\n"
-		SUMMARY_PSS  DELIMITER "          %8u\n"
-		SUMMARY_USS  DELIMITER "          %8u\n"
-		SUMMARY_SSS  DELIMITER "          %8u\n"
-		SUMMARY_GSS  DELIMITER "          %8u\n"
-		SUMMARY_REFD  DELIMITER "   %8u\n"
-		SUMMARY_SWAP  DELIMITER "         %8u\n"
-		SUMMARY_ANON  DELIMITER "    %8u\n"
-		SUMMARY_LOCKED  DELIMITER "       %8u\n",
-		stats->vss, stats->rss, stats->pss, stats->uss, stats->sss,
-		stats->gss, stats->refd, stats->swap, stats->anon,
-		stats->locked);
+	fprintf(summary,"Type" DELIMITER "         Size(kB)\n");
+	fprintf(summary,SUMMARY_VSS    DELIMITER "          %8u\n",stats->vss);
+	fprintf(summary,SUMMARY_RSS    DELIMITER "          %8u\n",stats->rss);
+	fprintf(summary,SUMMARY_PSS    DELIMITER "          %8u\n",stats->pss);
+	fprintf(summary,SUMMARY_USS    DELIMITER "          %8u\n",stats->uss);
+	fprintf(summary,SUMMARY_SSS    DELIMITER "          %8u\n",stats->sss);
+	fprintf(summary,SUMMARY_GSS    DELIMITER "          %8u\n",stats->gss);
+	fprintf(summary,SUMMARY_REFD   DELIMITER "   %8u\n",stats->refd);
+	fprintf(summary,SUMMARY_SWAP   DELIMITER "         %8u\n",stats->swap);
+	fprintf(summary,SUMMARY_ANON   DELIMITER "    %8u\n",stats->anon);
+	fprintf(summary,SUMMARY_LOCKED DELIMITER "       %8u\n",stats->locked);
+		
 }
 
 int fill_size_for_smaps_field(char * buff, const char *str, uint *val, 
@@ -252,14 +223,14 @@ FILE *const file)
 	}
 }
 
-void parse_smaps_file(FILE *const file, struct sizestats *stats)
+void parse_smaps_file(FILE *file, sizestats *stats)
 {
 /*
  * Extracts numerical data from the smaps file. Depends on the format staying as
  * Type:   [val] kB
  * Warning! May get confused by paths which contain text of format Type:[val] kB
  */
-	char buffer[BUFFER_SIZE];
+	char buffer[BUFSIZ];
 	char *pt = buffer;
 	size_t n = 0;
 	while (getdelim(&pt, &n, ':', file) > 0) {
@@ -284,8 +255,8 @@ void parse_smaps_file(FILE *const file, struct sizestats *stats)
 void countgss(void *key, void *value, void *data)
 {
 	size_t pagesize = getpagesize();
-	struct pagedata *page = value;
-	struct sizestats *stats = data;
+	pagedata *page = value;
+	sizestats *stats = data;
 	if (page->memmapped == page->procmapped)
 		stats->gss += pagesize;
 }
@@ -293,8 +264,8 @@ void countgss(void *key, void *value, void *data)
 void countsss(void *key, void *value, void *data)
 {
 	size_t pagesize = getpagesize();
-	struct pagedata *page = value;
-	struct sizestats *stats = data;
+	pagedata *page = value;
+	sizestats *stats = data;
 	if (page->memmapped == page->procmapped)
 		stats->sss += pagesize;
 }
@@ -309,9 +280,9 @@ void handle_errno(const char *context)
 	}
 }
 
-void lookup_smaps(pid_t PID, struct sizestats *stats)
+void lookup_smaps(pid_t PID, sizestats *stats)
 {
-	char buffer[BUFFER_SIZE];
+	char buffer[BUFSIZ];
 	FILE *file;
 	sprintf(buffer, "%s/%d/%s", PROC_PATH, PID, SMAPS_FILENAME);
 	file = fopen(buffer, "r");
@@ -329,7 +300,8 @@ int is_switch(const char *arg)
 		return 0;
 }
 
-int try_to_read_PID(const char *arg)
+pid_t
+try_to_read_PID(const char *arg)
 {
 /*
  * Tries to interpret a string as a number, and if it succeeds returns the PID
@@ -412,31 +384,87 @@ FILE **summary, FILE **detail)
 	}
 }
 
-void add_pid_to_array(pid_t pid, pid_t **pids, uint *pidcount)
+void 
+add_pid_to_array(pid_t pid, pid_t **pids, uint16_t *pidcount)
 {
-	*pids = realloc(*pids, sizeof(pid_t) * ((*pidcount) + 1));
-	handle_errno("allocating memory for PID array");
+	pid_t *temp;
+	errno = 0;
+	temp = realloc(*pids, sizeof(*temp) * ((*pidcount) + 1));
+	if (temp == NULL) {
+		perror("Error allocating memory for PID array");
+		exit(EXIT_FAILURE);
+	}
+	*pids = temp;
 	(*pids)[*pidcount] = pid;
 	*pidcount += 1;
 }
 
-void handle_args(int argc, const char *argv[], pid_t **pids, uint *pidcount, 
-uint8_t *flags, FILE **summaryfile, FILE **detailfile)
+FILE*
+open_arg(const char *arg)
 {
-/*
+	if (strcmp(arg, "-") == 0) {
+		return stdout;
+	} else {
+		FILE *ret = NULL;
+		errno = 0;
+		ret = fopen(arg, "w");
+		if (ret == NULL) {
+			perror("Error opening file");
+			exit(EXIT_FAILURE);
+		}
+		return ret;
+	}
+}
+
+/**
  * Parses the arguments given to the program. It ignores invalid arguments
  * instead of failing. FILE pointers and PID arrays are set in the functions
  * called, so are passed as pointers to pointers
  */
-	int i;
+void 
+handle_args(int argc, char *argv[], options *opt)
+{
+	char *optstr = "-s::d::D::";
+	int o;
 	pid_t pid;
-	for (i = 1; i < argc; i++) {
-		if (is_switch(argv[i]))
-			i += handle_switch(argv, argc, i, flags,
-				summaryfile, detailfile);
-		else if ((pid = try_to_read_PID(argv[i])))
-			add_pid_to_array(pid, pids, pidcount);
+	while ((o = getopt(argc, argv, optstr)) != -1) {
+		switch(o) {
+		case 1:
+			pid = try_to_read_PID(argv[optind - 1]);
+			if (pid != 0)
+				add_pid_to_array(pid, &(opt->pids),
+				                 &(opt->pidcount));
+			else
+				fprintf(stderr, "Warning: Received unexpected "
+				        "argument: %s. Ignoring.\n",
+				        argv[optind - 1]);
+			break;
+		case 's':
+			opt->summary = 1;
+			if(optarg)
+				opt->summaryfile = open_arg(optarg);
+			else
+				opt->summaryfile = stdout;
+			break;
+		case 'd':
+			opt->compactdetail = 1;
+			if(optarg)
+				opt->compactdetailfile = open_arg(optarg);
+			else
+				opt->compactdetailfile = stdout;
+			break;
+		case 'D':
+			opt->detail = 1;
+			if(optarg)
+				opt->detailfile = open_arg(optarg);
+			else
+				opt->detailfile = stdout;
+			break;
+		default:
+			printf("Received an unexpected option\n");
+		}
 	}
+
 }
 
 void set_signals()
@@ -505,8 +533,8 @@ void print_flags(uint64_t bitfield, FILE *const detail)
 	fprintf(detail, "\n");
 }
 
-void use_pfn(uint64_t pfn, uint8_t flags, struct sizestats *stats, 
-GHashTable *pages, FILE *const detail, int fdpageflags, int fdpagecount)
+void use_pfn(uint64_t pfn, options *opt, sizestats *stats, 
+             GHashTable *pages, int fdpageflags, int fdpagecount)
 {
 /*
  * Looks up the hash table of pages to see if this page has been mapped before.
@@ -526,7 +554,7 @@ GHashTable *pages, FILE *const detail, int fdpageflags, int fdpagecount)
 	size_t elementsize = sizeof(uint64_t);
 	uint64_t index = pfn * elementsize;
 
-	struct pagedata *pData = NULL;
+	pagedata *pData = NULL;
 	pData = g_hash_table_lookup(pages, &pfn);
 
 	if ((pData == NULL)) {
@@ -539,7 +567,7 @@ GHashTable *pages, FILE *const detail, int fdpageflags, int fdpagecount)
 	 * secondary process maps a PFN that the  primary process already has.
 	 */
 
-		if (flags & (FLAG_DETAIL | FLAG_SUMMARY)) {
+		if (opt->summary || opt->detail) {
 			pData = malloc(sizeof(*pData));
 			handle_errno("allocating memory for new page info");
 			pData->procmapped = 1;
@@ -550,7 +578,7 @@ GHashTable *pages, FILE *const detail, int fdpageflags, int fdpagecount)
 		pData->procmapped += 1;
 	}
 
-	if (!(flags & (FLAG_DETAIL | FLAG_SUMMARY)))
+	if (!(opt->summary || opt->detail))
 		return;
 
 	ret = lseek(fdpagecount, index, SEEK_SET);
@@ -563,17 +591,17 @@ GHashTable *pages, FILE *const detail, int fdpageflags, int fdpagecount)
 	read(fdpagecount, &bitfield, sizeof(bitfield));
 	handle_errno("reading kpagecount");
 
-	if ((flags & FLAG_SUMMARY) && (pData->memmapped == 0)) {
+	if (opt->summary && (pData->memmapped == 0)) {
 		/*This block of code is called only on a newly-mapped page*/
 		pData->memmapped = bitfield;
 		if (bitfield == 1)
 			stats->uss += getpagesize();
 	}
 
-	if (!(flags & FLAG_DETAIL))
+	if (!(opt->detail))
 		return;
 
-	fprintf(detail, "%Lu,", bitfield);
+	fprintf(opt->detailfile, "%Lu,", bitfield);
 
 	ret = lseek(fdpageflags, index, SEEK_SET);
 	handle_errno("seeking into kpageflags");
@@ -584,12 +612,12 @@ GHashTable *pages, FILE *const detail, int fdpageflags, int fdpagecount)
 
 	read(fdpageflags, &bitfield, sizeof(bitfield));
 	handle_errno("reading kpageflags");
-	print_flags(bitfield, detail);
+	print_flags(bitfield, opt->detailfile);
 }
 
-void parse_bitfield(uint64_t bitfield, uint8_t flags, struct sizestats *stats, 
-GHashTable *pages, FILE *const detail, int fdpageflags, int fdpagecount,
-const struct vmastats *vmst)
+void parse_bitfield(uint64_t bitfield, options *opt, sizestats *stats, 
+                    GHashTable *pages, int fdpageflags, 
+                    int fdpagecount, const vmastats *vmst)
 {
 /*
  * Prints the start of the detail line for each line, if requested to print 
@@ -603,38 +631,40 @@ const struct vmastats *vmst)
 
 	uint64_t pfnbits;
 
-	if (flags & FLAG_DETAIL)
-		fprintf(detail, "%s,%s,", vmst->permissions, vmst->path);
-	if (!(bitfield & PAGEPRESENT)) {
-		if (flags & FLAG_DETAIL)
-			fprintf(detail, DETAIL_NOPRESENT"\n");
-		return;
-	}
-	if (flags & FLAG_DETAIL) {
+	if (opt->detail)
+		fprintf(opt->detailfile, "%s,%s,", vmst->permissions, vmst->path);
+	if (opt->detail) {
 		uint64_t pageshift;
-
-		fprintf(detail, DETAIL_YESPRESENT DELIMITER);
+		if (bitfield & PAGEPRESENT) 
+			fprintf(opt->detailfile, DETAIL_YESPRESENT DELIMITER);
+		else
+			fprintf(opt->detailfile, DETAIL_NOPRESENT DELIMITER);
 		pageshift = bitfield & PAGESHIFTBITS;
 		pageshift = pageshift >> PAGESHIFT;
-		fprintf(detail, "%u" DELIMITER, 1 << pageshift); /* page size 
+		fprintf(opt->detailfile, "%u" DELIMITER, 1 << pageshift); /* page size 
 		                                                  * in bytes*/
 	}
 	if (bitfield & PAGESWAPPED) {
 		/*Omitting swap type and swap offset information*/
-		if (flags & FLAG_DETAIL)
-			fprintf(detail, DETAIL_YESSWAP"\n");
+		if (opt->detail)
+			fprintf(opt->detailfile, DETAIL_YESSWAP"\n");
 		return;
 	}
-	if (flags & FLAG_DETAIL)
-		fprintf(detail, DETAIL_NOSWAP DELIMITER);
+	if (opt->detail)
+		fprintf(opt->detailfile, DETAIL_NOSWAP DELIMITER);
 	pfnbits = bitfield & PFNBITS;
 
-	use_pfn(pfnbits, flags, stats, pages, detail, fdpageflags, fdpagecount);
+	if (opt->detail)
+		fprintf(opt->detailfile, "%llx" DELIMITER, pfnbits);
+
+	use_pfn(pfnbits, opt, stats, pages, fdpageflags, fdpagecount);
 }
 
 void lookup_pagemap_with_addresses(uint32_t indexfrom, uint32_t indexto, 
-uint8_t flags, struct sizestats *stats, GHashTable *pages, FILE *const detail, 
-int fdpageflags, int fdpagecount, int fdpagemap, const struct vmastats *vmst)
+                                   options *opt, sizestats *stats, 
+                                   GHashTable *pages,
+                                   int fdpageflags, int fdpagecount, 
+                                   int fdpagemap, const vmastats *vmst)
 {
 /*
  * Looks up every entry over the index range in pagemap and reads the 64-bit
@@ -661,14 +691,14 @@ int fdpageflags, int fdpagecount, int fdpagemap, const struct vmastats *vmst)
 		}
 		read(fdpagemap, &bitfield, sizeof(bitfield));
 		handle_errno("reading in pagemap");
-		parse_bitfield(bitfield, flags, stats, pages, detail, 
+		parse_bitfield(bitfield, opt, stats, pages, 
 		               fdpageflags, fdpagecount, vmst);
 	}
 }
 
-void lookup_maps_with_PID(pid_t pid, uint8_t flags, 
-struct sizestats *stats, GHashTable *pages,FILE *const detail, 
-int fdpageflags, int fdpagecount)
+void lookup_maps_with_PID(pid_t pid, options *opt, sizestats *stats,  
+                          GHashTable *pages,int fdpageflags,
+                          int fdpagecount)
 {
 /*
  * Uses the PID to access the appropriate /proc/PID/maps file, which contains
@@ -680,7 +710,7 @@ int fdpageflags, int fdpagecount)
  */
 
 	char pathbuf[PATH_MAX];
-	char buffer[BUFFER_SIZE]; /* Buffer for storing lines read from file*/
+	char buffer[BUFSIZ]; /* Buffer for storing lines read from file*/
 	FILE *filemaps;
 	int fdpagemap;
 
@@ -695,8 +725,8 @@ int fdpageflags, int fdpagecount)
 	fdpagemap = open(pathbuf, O_RDONLY);
 	handle_errno("opening pagemap file");
 
-	while (fgets(buffer, BUFFER_SIZE, filemaps) != NULL) {
-		struct vmastats vmst;
+	while (fgets(buffer, BUFSIZ, filemaps) != NULL) {
+		vmastats vmst;
 		uint32_t addrstart;
 		uint32_t addrend;
 		int ret;
@@ -724,8 +754,8 @@ int fdpageflags, int fdpagecount)
 		}
 
 		lookup_pagemap_with_addresses(addrstart / pagesize, 
-		                              addrend / pagesize, flags, stats,
-		                              pages, detail, fdpageflags, 
+		                              addrend / pagesize, opt, stats,
+		                              pages, fdpageflags, 
 		                              fdpagecount, fdpagemap, &vmst);
 	}
 
@@ -735,8 +765,9 @@ int fdpageflags, int fdpagecount)
 	handle_errno("closing pagemap file");
 }
 
-void inspect_processes(const pid_t *pids, uint count, uint8_t flags, 
-struct sizestats *stats, GHashTable *pages,FILE *const summary,FILE *const detail)
+void inspect_processes(options *opt, 
+                       sizestats *stats, GHashTable *pages,FILE *summary,
+                       FILE *detail)
 {
 /* 
  * Function to do most of the hard work. flags tell it what to do, and pids
@@ -759,30 +790,31 @@ struct sizestats *stats, GHashTable *pages,FILE *const summary,FILE *const detai
 	fdpagecount = open(pathbuf, O_RDONLY);
 	handle_errno("opening kpagecount file");
 
-	if (flags & FLAG_DETAIL)
-		fprintf(detail, DETAIL_PERMTITLE       DELIMITER 
-		                DETAIL_PATHTITLE       DELIMITER 
-		                DETAIL_PRESENTTITLE    DELIMITER 
-		                DETAIL_SIZETITLE       DELIMITER 
-		                DETAIL_SWAPTITLE       DELIMITER 
-		                DETAIL_MAPPEDTITLE     DELIMITER 
-		                DETAIL_LOCKEDTITLE     DELIMITER
-		                DETAIL_REFDTITLE       DELIMITER
-		                DETAIL_DIRTYTITLE      DELIMITER
-		                DETAIL_ANONTITLE       DELIMITER
-		                DETAIL_SWAPCACHETITLE  DELIMITER
-		                DETAIL_SWAPBACKEDTITLE DELIMITER
-		                DETAIL_KSMTITLE        "\n");
+	if (opt->detail)
+		fprintf(opt->detailfile, DETAIL_PERMTITLE       DELIMITER 
+		                         DETAIL_PATHTITLE       DELIMITER 
+		                         DETAIL_PRESENTTITLE    DELIMITER 
+		                         DETAIL_SIZETITLE       DELIMITER 
+		                         DETAIL_SWAPTITLE       DELIMITER 
+		                         DETAIL_PFNTITLE        DELIMITER
+		                         DETAIL_MAPPEDTITLE     DELIMITER 
+		                         DETAIL_LOCKEDTITLE     DELIMITER
+		                         DETAIL_REFDTITLE       DELIMITER
+		                         DETAIL_DIRTYTITLE      DELIMITER
+		                         DETAIL_ANONTITLE       DELIMITER
+		                         DETAIL_SWAPCACHETITLE  DELIMITER
+		                         DETAIL_SWAPBACKEDTITLE DELIMITER
+		                         DETAIL_KSMTITLE        "\n");
 
-	lookup_maps_with_PID(pids[0], flags, stats, pages, 
-	                     detail, fdpageflags, fdpagecount);
+	lookup_maps_with_PID(opt->pids[0], opt, stats, pages,
+	                     fdpageflags, fdpagecount);
 
-	if (flags & FLAG_SUMMARY) {
+	if (opt->summary) {
 		g_hash_table_foreach(pages, countsss, stats);
 
-		for (i = 1; i < count; i++) {
-			lookup_maps_with_PID(pids[i], 0, stats, pages,
-			                     detail, fdpageflags, fdpagecount);		
+		for (i = 1; i < opt->pidcount; i++) {
+			lookup_maps_with_PID(opt->pids[i], opt, stats, pages,
+			                     fdpageflags, fdpagecount);		
 		}
 
 
@@ -801,7 +833,7 @@ struct sizestats *stats, GHashTable *pages,FILE *const summary,FILE *const detai
 	
 }
 
-int main(int argc, const char *argv[])
+int main(int argc, char *argv[])
 {
 /*
  * Sets up the signal handler
@@ -811,28 +843,13 @@ int main(int argc, const char *argv[])
  * writes a summary
  */
 
-	FILE *summaryfile = NULL;
-	FILE *detailfile = NULL;
-
-	uint8_t flags = 0; /*Bit field for storing options as flags*/
-
 	/* Hash table used to store information about individual pages */
 	GHashTable *pages = g_hash_table_new_full(g_int64_hash,
 	                                          g_int64_equal, 
 	                                          &destroyval, &destroyval);
 
-	struct sizestats stats;
-		stats.vss = 0;
-		stats.rss = 0;
-		stats.pss = 0;
-		stats.uss = 0;
-		stats.gss = 0;
-		stats.sss = 0;
-		stats.refd = 0;
-		stats.swap = 0;
-		stats.anon = 0;
-		stats.locked = 0;
-
+	sizestats stats = { 0 };
+	options opt = {0};
 	set_signals();
 
 	if (argc < 2){
@@ -842,23 +859,23 @@ int main(int argc, const char *argv[])
 		exit(EXIT_FAILURE);
 	}
 
-	handle_args(argc, argv, &PIDs, &PIDcount, 
-	            &flags, &summaryfile, &detailfile);
-
+	handle_args(argc, argv, &opt);
+	PIDs = opt.pids;
+	PIDcount = opt.pidcount;
 	stop_PIDs(PIDs, PIDcount);
 
-	if (flags & (FLAG_SUMMARY | FLAG_DETAIL))
-		inspect_processes(PIDs, PIDcount, flags, &stats,
-		                  pages, summaryfile, detailfile);
+	if (opt.summary || opt.detail || opt.compactdetail)
+		inspect_processes(&opt, &stats,
+		                  pages, opt.summaryfile, opt.detailfile);
 	else
 		printf("%s must specify at least one of -s and -d\n", argv[0]);
 
-	if (flags & FLAG_SUMMARY)
-		write_summary(&stats, summaryfile);
-	if (detailfile != NULL)
-		fclose(detailfile);
-	if (summaryfile != NULL)
-		fclose(summaryfile);
+	if (opt.summary)
+		write_summary(&stats, opt.summaryfile);
+	if (opt.detailfile != NULL)
+		fclose(opt.detailfile);
+	if (opt.summaryfile != NULL)
+		fclose(opt.summaryfile);
 
 	cleanup(0);
 	g_hash_table_destroy(pages);
