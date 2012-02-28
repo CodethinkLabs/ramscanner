@@ -39,7 +39,8 @@
 /**
  * Macros used in printing the details' title.
  */
-
+#define DETAIL_ADDRSTARTTITLE "from"
+#define DETAIL_ADDRENDTITLE "to"
 #define DETAIL_PERMTITLE "permissions"
 #define DETAIL_PATHTITLE "path"
 #define DETAIL_PRESENTTITLE "present"

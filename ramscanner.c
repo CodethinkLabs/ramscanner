@@ -206,6 +206,12 @@ typedef struct {
 	sizestats summarystats;   /**< sizestats holding information for the
 	                            *   summary.
 	                            */
+	vmastats *vmas;           /**< Array of VMAs, stored here so they can be
+	                           *   cleaned up properly.
+	                           */
+	int vmacount;             /**< A counter of the number of VMAs stored in
+	                           *   vmastats.
+	                           */
 } options;
 
 
@@ -748,6 +754,26 @@ void lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto,
 	}
 }
 
+
+vmastats *
+make_another_vmst_in_opt(options *opt)
+{
+	vmastats *temp;
+	vmastats *newelement;
+	errno = 0;
+	temp = realloc(opt->vmas, sizeof(*temp) * (opt->vmacount + 1));
+	if (temp == NULL) {
+		perror("Error allocating new vmastats");
+		cleanup(0);
+		exit(EXIT_FAILURE);
+	}
+	opt->vmas = temp;
+	(opt->vmacount)++;
+	newelement = &(temp[opt->vmacount - 1]);
+	memset(newelement, 0, sizeof(*newelement));
+	return newelement;
+}
+
 void lookup_maps_with_PID(pid_t pid, options *opt,int fdpageflags,
                           int fdpagecount)
 {
@@ -776,13 +802,13 @@ void lookup_maps_with_PID(pid_t pid, options *opt,int fdpageflags,
 	handle_errno("opening pagemap file");
 
 	while (fgets(buffer, BUFSIZ, filemaps) != NULL) {
-		vmastats vmst;
+		vmastats *vmst = make_another_vmst_in_opt(opt);
 		uint32_t addrstart;
 		uint32_t addrend;
 		int ret;
 		
 		ret = sscanf(buffer, "%x-%x %4s", &addrstart, &addrend,
-		             vmst.permissions);
+		             vmst->permissions);
 		handle_errno("parsing addresses from a line of maps file");
 
 		if (ret < 3){
@@ -793,20 +819,20 @@ void lookup_maps_with_PID(pid_t pid, options *opt,int fdpageflags,
 
 		if ((pos = strchr(buffer, '/')) != NULL) {
 			char *newlinepos;
-			strcpy(vmst.path, pos);
-			newlinepos = strrchr(vmst.path, '\n');
+			strcpy(vmst->path, pos);
+			newlinepos = strrchr(vmst->path, '\n');
 			*newlinepos = '\0';
 		} else if ((pos = strchr(buffer, '[')) != NULL) {
 			char *newlinepos;
-			strcpy(vmst.path, pos);
-			newlinepos = strrchr(vmst.path, '\n');
+			strcpy(vmst->path, pos);
+			newlinepos = strrchr(vmst->path, '\n');
 			*newlinepos = '\0';
 		}
 
 		lookup_pagemap_with_addresses(addrstart, 
 		                              addrend, opt,
 		                              fdpageflags, fdpagecount,
-		                              fdpagemap, &vmst);
+		                              fdpagemap, vmst);
 	}
 
 	fclose(filemaps);
@@ -888,6 +914,111 @@ void inspect_processes(options *opt)
 	
 }
 
+void
+print_detail_format(FILE *file)
+{
+	fprintf(file,            DETAIL_ADDRSTARTTITLE  DELIMITER
+	                         DETAIL_ADDRENDTITLE    DELIMITER
+	                         DETAIL_PERMTITLE       DELIMITER 
+	                         DETAIL_PATHTITLE       DELIMITER 
+	                         DETAIL_PRESENTTITLE    DELIMITER 
+	                         DETAIL_SIZETITLE       DELIMITER 
+	                         DETAIL_SWAPTITLE       DELIMITER 
+	                      /* DETAIL_PFNTITLE        DELIMITER PFN OMITTED */
+	                         DETAIL_MAPPEDTITLE     DELIMITER 
+	                         DETAIL_LOCKEDTITLE     DELIMITER
+	                         DETAIL_REFDTITLE       DELIMITER
+	                         DETAIL_DIRTYTITLE      DELIMITER
+	                         DETAIL_ANONTITLE       DELIMITER
+	                         DETAIL_SWAPCACHETITLE  DELIMITER
+	                         DETAIL_SWAPBACKEDTITLE DELIMITER
+	                         DETAIL_KSMTITLE        "\n"); 
+}
+
+void
+print_page_detail_data(pagedetaildata *page, FILE *file){
+
+
+	fprintf(file, "%5s"DELIMITER,page->vsts->permissions);
+	fprintf(file, "%s"DELIMITER,page->vsts->path);
+	fprintf(file, "%s"DELIMITER, (page->present ? 
+	                              DETAIL_YESPRESENT : 
+	                              DETAIL_NOPRESENT ));
+	fprintf(file, "%d"DELIMITER, (1 << page->pageshift));
+	fprintf(file, "%s"DELIMITER, (page->swap ? 
+	                              DETAIL_YESSWAP : 
+	                              DETAIL_NOSWAP ));
+	/* PFN OMITTED
+	 * fprintf(file, "%llx"DELIMITER, (page->pfn ? page->pfn : ""));
+	 */
+	fprintf(file, "%d"DELIMITER, page->timesmapped);
+	fprintf(file, "%s"DELIMITER, (page->locked ? 
+	                              DETAIL_YESLOCKED : 
+	                              DETAIL_NOLOCKED ));
+	fprintf(file, "%s"DELIMITER, (page->referenced ? 
+	                              DETAIL_YESREFD : 
+	                              DETAIL_NOREFD ));
+	fprintf(file, "%s"DELIMITER, (page->dirty ? 
+	                              DETAIL_YESDIRTY : 
+	                              DETAIL_NODIRTY ));
+	fprintf(file, "%s"DELIMITER, (page->anonymous ? 
+	                              DETAIL_YESANON : 
+	                              DETAIL_NOANON ));
+	fprintf(file, "%s"DELIMITER, (page->swapcache ? 
+	                              DETAIL_YESSWAPCACHE : 
+	                              DETAIL_NOSWAPCACHE ));
+	fprintf(file, "%s"DELIMITER, (page->swapbacked ? 
+	                              DETAIL_YESSWAPBACKED : 
+	                              DETAIL_NOSWAPBACKED ));
+	fprintf(file, "%s"DELIMITER, (page->ksm ? 
+	                              DETAIL_YESKSM : 
+	                              DETAIL_NOKSM ));
+	fprintf(file, "\n");
+
+}
+
+void
+write_compact_detail_page(void *key, void *val, void *userdata)
+{
+	options *opt = userdata;
+	pagedetaildata *page = val;
+	uint32_t pagecount = (page->addrend - page->addrstart) / getpagesize();
+	fprintf(opt->compactdetailfile, "%x" DELIMITER, page->addrstart);
+	fprintf(opt->compactdetailfile, "%x" DELIMITER, page->addrend);
+	print_page_detail_data(page, opt->compactdetailfile);			
+	fprintf(opt->compactdetailfile, "(%d identical pages)\n", pagecount);
+}
+
+void
+write_detail_page(void *key, void *val, void *userdata)
+{
+	options *opt = userdata;
+	pagedetaildata *page = val;
+	uint32_t i;
+	size_t size = getpagesize();
+
+	for (i = page->addrstart; i < page->addrend; i += size) {
+		fprintf(opt->detailfile, "%x" DELIMITER, i);
+		fprintf(opt->detailfile, "%x" DELIMITER, (i + size));
+		print_page_detail_data(page, opt->detailfile);
+	}
+}
+
+
+void
+write_any_detail(options *opt)
+{
+	if (opt->compactdetail) {
+		print_detail_format(opt->compactdetailfile);
+		g_hash_table_foreach(opt->detailpages,
+		                     &write_compact_detail_page, opt);
+	}
+	if (opt->detail) {
+		print_detail_format(opt->detailfile);
+		g_hash_table_foreach(opt->detailpages, &write_detail_page, opt);
+	}
+}
+
 /*
  * Sets up the signal handler
  * Calls functions to turn the arguments into PIDs, flags and filenames. 
@@ -933,14 +1064,20 @@ main(int argc, char *argv[])
 	else
 		printf("%s must specify at least one of -s and -d\n", argv[0]);
 
+
+
 	if (opt.summary)
 		write_summary(&(opt.summarystats), opt.summaryfile);
+	if (opt.detail || opt.compactdetail)
+		write_any_detail(&opt);
 	if (opt.detailfile != NULL)
 		fclose(opt.detailfile);
 	if (opt.summaryfile != NULL)
 		fclose(opt.summaryfile);
 
 	cleanup(0);
+
+	free(opt.vmas);
 	if (opt.summary)
 		g_hash_table_destroy(opt.summarypages);
 	if (opt.detail || opt.compactdetail)
