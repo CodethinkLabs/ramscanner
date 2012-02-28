@@ -112,7 +112,7 @@ typedef struct {
 } sizestats;
 
 /**
- * Page data : Information stored about the individual page
+ * Page data : Information stored about the individual page for summary
  */
 typedef struct {
 	uint32_t memmapped;  /**< Internal store of how many times this page has
@@ -125,7 +125,7 @@ typedef struct {
 } pagesummarydata;
 
 /**
- * Information stored about the current VMA being worked in
+ * Information stored about the current VMA being worked in.
  */
 typedef struct {
 	char permissions[5]; /**< A 4-character (plus null-terminator) string
@@ -136,6 +136,50 @@ typedef struct {
                               *   etc.
                               */
 } vmastats;
+
+
+/**
+ * All the information stored about a contiguous region of identical pages.
+ */
+typedef struct {
+	uint32_t addrstart;    /**< The address into the pagemap for the start
+	                        *   of this region.
+	                        */
+	uint32_t addrend;      /**< The address into the pagemap for the end of
+	                        *   this region.
+	                        */
+	vmastats *vsts;        /**< Reference to the VMA the page belongs to. */
+	unit8_t  present;      /**< If the page is the page marked as present by
+	                        *   pagemap.
+	                        */
+	uint16_t size;         /**< The size of the page (it shouldn't vary), 
+	                        *   but is stored by pagemap.
+	                        */
+	unit8_t  swap;         /**< If the page is the page marked as swapped by
+	                        *   pagemap.
+	                        */
+	uint16_t pfn;          /**< The Page Frame Number used to look up in
+	                        *   kpagemap and kpagecount, if it exists.
+	                        */
+	uint16_t timesmapped;  /**< The number of times the page has been mapped
+	                        *   by processes.
+	                        */
+	uint8_t  locked;       /**< The page has been locked by a process. */
+	uint8_t  referenced;   /**< The page has been recently accessed by a
+	                        *   process.
+	                        */
+	uint8_t  dirty;        /**< The page is dirty - it has been modified by
+	                        *   a process.
+	                        */
+	uint8_t  anonymous;    /**< The page is not associated with a file */
+	uint8_t  swapcache;    /**< The page is mapped to swap space - it has an
+	                        *   associated swap entry.
+	                        */
+	uint8_t  swapbacked;   /**< The page is backed by swap/RAM */
+	uint8_t  ksm;          /**< The page is part of Kernel SamePage Merging.
+	                        */
+} pagedetaildata;
+
 /**
  * All the information stored about how to run the program.
  */
@@ -707,8 +751,7 @@ void lookup_maps_with_PID(pid_t pid, options *opt, sizestats *stats,
 }
 
 void inspect_processes(options *opt, 
-                       sizestats *stats, GHashTable *pages,FILE *summary,
-                       FILE *detail)
+                       sizestats *stats, GHashTable *pages)
 {
 /* 
  * Function to do most of the hard work. flags tell it what to do, and pids
@@ -808,7 +851,7 @@ main(int argc, char *argv[])
 
 	if (opt.summary || opt.detail || opt.compactdetail)
 		inspect_processes(&opt, &stats,
-		                  pages, opt.summaryfile, opt.detailfile);
+		                  pages);
 	else
 		printf("%s must specify at least one of -s and -d\n", argv[0]);
 
