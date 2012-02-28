@@ -72,7 +72,6 @@
  * Sizestats holds information about the memory used by the process in
  * different ways.
  */
-
 typedef struct {
 	uint32_t vss;    /**< Virtual set size: The sum of memory with  
                           *   addresses in the primary process' memory map.
@@ -124,6 +123,7 @@ typedef struct {
 			      *   been mapped by the PIDs defined
                               */
 } pagedata;
+
 /**
  * Information stored about the current VMA being worked in
  */
@@ -160,12 +160,13 @@ pid_t *PIDs = NULL; /* Global array of PIDs used, so that they can be restarted
 uint16_t PIDcount = 0;
 
 
-
-void * newkey(uint64_t key)
-{
-/* Allocates, sets with value "key" and returns a void pointer for the hash 
+/**
+ * Allocates, sets with value "key" and returns a void pointer for the hash 
  * table. This function is used with a 54-bit integer, the PFN
  */
+void * 
+newkey(uint64_t key)
+{
 	uint64_t *temp = malloc(sizeof(*temp));
 	*temp = key;
 	return temp;
@@ -200,8 +201,8 @@ void write_summary(const sizestats *stats, FILE *summary)
 		
 }
 
-int fill_size_for_smaps_field(char * buff, const char *str, uint *val, 
-FILE *const file)
+int fill_size_for_smaps_field(char *buff, const char *str, uint *val, 
+                              FILE *file)
 {
 /*
  *Tries to find the string str in buff. If it does, it gets the rest of the line
@@ -292,22 +293,15 @@ void lookup_smaps(pid_t PID, sizestats *stats)
 	handle_errno("closing smaps file");
 }
 
-int is_switch(const char *arg)
-{
-	if (arg[0] == '-')
-		return 1;
-	else
-		return 0;
-}
-
-pid_t
-try_to_read_PID(const char *arg)
-{
-/*
+/**
  * Tries to interpret a string as a number, and if it succeeds returns the PID
  * Handles the special case of specifying the PID 0, which is forbidden, and 
  * checks if the PID specified corresponds to an existing process 
  */
+pid_t
+try_to_read_PID(const char *arg)
+{
+
 	char *endpt = NULL;
 	pid_t temp = strtoul(arg, &endpt, 0);
 	if (endpt == arg) { /* Did not read a number*/
@@ -327,62 +321,6 @@ try_to_read_PID(const char *arg)
 	}
 }
 
-void warn_if_looks_like_pid(const char *str)
-{
-/*
- * The program requires a file path to be specified after the -s and -d switches
- * and if a PID is stated instead, the output file will use that as the file
- * path. So that the user is aware of this, a warning will be generated 
- */
-	if (try_to_read_PID(str)) {
-		fprintf(stderr, "Warning: File argument following a flag"
-			" looks like a PID\n");
-	}
-}
-
-int handle_switch(const char *argv[], int argc, int index, uint8_t *flags, 
-FILE **summary, FILE **detail)
-{
-/*
- * Checks for which switch it received. Returns how many args to skip because 
- * they have been processed in this function. It does not crash the program on
- * finding an invalid argument, but does print an error to stderr so the user
- * is aware of it
- */
-	if (tolower(argv[index][1]) == 's') {
-		if (argc <= (index + 1)) {
-			fprintf(stderr, "Error: -s flag must have the filename"
-				" after it. Ignoring flag\n");
-			return 0;
-		}
-		*flags |= FLAG_SUMMARY;
-		if (strcmp(argv[index + 1], "stdout") == 0) {
-			*summary = stdout;
-		} else {
-			*summary = fopen(argv[index + 1], "w");
-			handle_errno("opening file to write summary to");
-			warn_if_looks_like_pid(argv[index + 1]);
-		}
-		return 1;
-	} else if (tolower(argv[index][1]) == 'd') {
-		if (argc <= (index + 1)) {
-			fprintf(stderr, "Error: -d flag must have the filename"
-				" after it. Ignoring flag\n");
-			return 0;
-		}
-		*flags |= FLAG_DETAIL;
-		if (strcmp(argv[index + 1], "stdout") == 0) {
-			*detail = stdout;
-		} else {
-			*detail = fopen(argv[index + 1], "w");
-			handle_errno("opening file to write details to");
-			warn_if_looks_like_pid(argv[index + 1]);
-		}
-		return 1;
-	} else {
-		return 0;
-	}
-}
 
 void 
 add_pid_to_array(pid_t pid, pid_t **pids, uint16_t *pidcount)
@@ -398,7 +336,10 @@ add_pid_to_array(pid_t pid, pid_t **pids, uint16_t *pidcount)
 	(*pids)[*pidcount] = pid;
 	*pidcount += 1;
 }
-
+/**
+ * Open file with the name passed in the argument, and return the File* 
+ * associated.
+ */
 FILE*
 open_arg(const char *arg)
 {
@@ -511,25 +452,25 @@ void print_flags(uint64_t bitfield, FILE *const detail)
 {
 	print_detail_from_condition(bitfield & PAGEFLAG_LOCKED,
 	                            DETAIL_YESLOCKED DELIMITER, 
-	                            DETAIL_NOLOCKED DELIMITER, detail);
+	                            DETAIL_NOLOCKED  DELIMITER, detail);
 	print_detail_from_condition(bitfield & PAGEFLAG_REFERENCED,
 	                            DETAIL_YESREFD DELIMITER, 
-	                            DETAIL_NOREFD DELIMITER, detail);
+	                            DETAIL_NOREFD  DELIMITER, detail);
 	print_detail_from_condition(bitfield & PAGEFLAG_DIRTY,
 	                            DETAIL_YESDIRTY DELIMITER,
-	                            DETAIL_NODIRTY DELIMITER, detail);
+	                            DETAIL_NODIRTY  DELIMITER, detail);
 	print_detail_from_condition(bitfield & PAGEFLAG_ANON,
 	                            DETAIL_YESANON DELIMITER,
-	                            DETAIL_NOANON DELIMITER, detail);
+	                            DETAIL_NOANON  DELIMITER, detail);
 	print_detail_from_condition(bitfield & PAGEFLAG_SWAPCACHE,
 	                            DETAIL_YESSWAPCACHE DELIMITER,
-	                            DETAIL_NOSWAPCACHE DELIMITER, detail);
+	                            DETAIL_NOSWAPCACHE  DELIMITER, detail);
 	print_detail_from_condition(bitfield & PAGEFLAG_SWAPBACKED,
 	                            DETAIL_YESSWAPBACKED DELIMITER,
-	                            DETAIL_NOSWAPBACKED DELIMITER, detail);
+	                            DETAIL_NOSWAPBACKED  DELIMITER, detail);
 	print_detail_from_condition(bitfield & PAGEFLAG_KSM,
 	                            DETAIL_YESKSM DELIMITER,
-	                            DETAIL_NOKSM DELIMITER, detail);
+	                            DETAIL_NOKSM  DELIMITER, detail);
 	fprintf(detail, "\n");
 }
 
@@ -833,8 +774,6 @@ void inspect_processes(options *opt,
 	
 }
 
-int main(int argc, char *argv[])
-{
 /*
  * Sets up the signal handler
  * Calls functions to turn the arguments into PIDs, flags and filenames. 
@@ -842,6 +781,9 @@ int main(int argc, char *argv[])
  * calls the function to inspect the PIDs
  * writes a summary
  */
+int 
+main(int argc, char *argv[])
+{
 
 	/* Hash table used to store information about individual pages */
 	GHashTable *pages = g_hash_table_new_full(g_int64_hash,
