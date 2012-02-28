@@ -122,7 +122,7 @@ typedef struct {
 	uint32_t procmapped; /**< Internal store of how many times this page has
 			      *   been mapped by the PIDs defined
                               */
-} pagedata;
+} pagesummarydata;
 
 /**
  * Information stored about the current VMA being worked in
@@ -256,7 +256,7 @@ void parse_smaps_file(FILE *file, sizestats *stats)
 void countgss(void *key, void *value, void *data)
 {
 	size_t pagesize = getpagesize();
-	pagedata *page = value;
+	pagesummarydata *page = value;
 	sizestats *stats = data;
 	if (page->memmapped == page->procmapped)
 		stats->gss += pagesize;
@@ -265,7 +265,7 @@ void countgss(void *key, void *value, void *data)
 void countsss(void *key, void *value, void *data)
 {
 	size_t pagesize = getpagesize();
-	pagedata *page = value;
+	pagesummarydata *page = value;
 	sizestats *stats = data;
 	if (page->memmapped == page->procmapped)
 		stats->sss += pagesize;
@@ -495,7 +495,7 @@ void use_pfn(uint64_t pfn, options *opt, sizestats *stats,
 	size_t elementsize = sizeof(uint64_t);
 	uint64_t index = pfn * elementsize;
 
-	pagedata *pData = NULL;
+	pagesummarydata *pData = NULL;
 	pData = g_hash_table_lookup(pages, &pfn);
 
 	if ((pData == NULL)) {
