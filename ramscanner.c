@@ -152,16 +152,16 @@ typedef struct {
 	uint8_t  present;      /**< If the page is the page marked as present by
 	                        *   pagemap.
 	                        */
-	uint16_t size;         /**< The size of the page (it shouldn't vary), 
-	                        *   but is stored by pagemap.
+	uint8_t pageshift;     /**< The bits to construct the page size by
+	                        *   1 << pageshift, as reported by pagemap.
 	                        */
 	uint8_t  swap;         /**< If the page is the page marked as swapped by
 	                        *   pagemap.
 	                        */
-	uint16_t pfn;          /**< The Page Frame Number used to look up in
+	uint64_t pfn;          /**< The Page Frame Number used to look up in
 	                        *   kpagemap and kpagecount, if it exists.
 	                        */
-	uint16_t timesmapped;  /**< The number of times the page has been mapped
+	uint32_t timesmapped;  /**< The number of times the page has been mapped
 	                        *   by processes.
 	                        */
 	uint8_t  locked;       /**< The page has been locked by a process. */
@@ -492,7 +492,7 @@ void stop_PIDs(const pid_t *pids, uint count)
 		handle_errno("stopping process");
 	}
 }
-
+/* COMMENTED OUT AS CURRENTLY UNUSED. MAY BE REPURPOSED LATER.
 void print_detail_from_condition(uint32_t condition, const char *truestring, 
 const char *falsestring, FILE *const file)
 {
@@ -527,8 +527,23 @@ void print_flags(uint64_t bitfield, FILE *const detail)
 	                            DETAIL_NOKSM  DELIMITER, detail);
 	fprintf(detail, "\n");
 }
+*/
 
-void use_pfn(uint64_t pfn, options *opt, int fdpageflags, int fdpagecount)
+void
+store_flags_in_page(bitfield, pagedetaildata *currentdpage)
+{
+	currentdpage->locked     = (bitfield & PAGEFLAG_LOCKED)     ? 1 : 0;
+	currentdpage->referenced = (bitfield & PAGEFLAG_REFERENCED) ? 1 : 0;
+	currentdpage->dirty      = (bitfield & PAGEFLAG_DIRTY)      ? 1 : 0;
+	currentdpage->anonymous  = (bitfield & PAGEFLAG_ANON)       ? 1 : 0;
+	currentdpage->swapcache  = (bitfield & PAGEFLAG_SWAPCACHE)  ? 1 : 0;
+	currentdpage->swapbacked = (bitfield & PAGEFLAG_SWAPBACKED) ? 1 : 0;
+	currentdpage->ksm        = (bitfield & PAGEFLAG_KSM)        ? 1 : 0;
+
+}
+
+void use_pfn(uint64_t pfn, options *opt, int fdpageflags, int fdpagecount, 
+             pagedetaildata *currentdpage)
 {
 /*
  * Looks up the hash table of pages to see if this page has been mapped before.
@@ -561,7 +576,7 @@ void use_pfn(uint64_t pfn, options *opt, int fdpageflags, int fdpagecount)
 	 * secondary process maps a PFN that the  primary process already has.
 	 */
 
-		if (opt->summary || opt->detail) {
+		if (opt->summary || opt->detail || opt->compactdetail) {
 			pData = malloc(sizeof(*pData));
 			handle_errno("allocating memory for new page info");
 			pData->procmapped = 1;
@@ -572,7 +587,7 @@ void use_pfn(uint64_t pfn, options *opt, int fdpageflags, int fdpagecount)
 		pData->procmapped += 1;
 	}
 
-	if (!(opt->summary || opt->detail))
+	if (!(opt->summary || opt->detail || opt->compactdetail))
 		return;
 
 	ret = lseek(fdpagecount, index, SEEK_SET);
@@ -586,16 +601,16 @@ void use_pfn(uint64_t pfn, options *opt, int fdpageflags, int fdpagecount)
 	handle_errno("reading kpagecount");
 
 	if (opt->summary && (pData->memmapped == 0)) {
-		/*This block of code is called only on a newly-mapped page*/
+		/* This block of code is called only on a newly-mapped page. */
 		pData->memmapped = bitfield;
 		if (bitfield == 1)
-			opt->summarystats.uss += getpagesize();
+			opt->summarystats.uss += getpagesize()/KBSIZE;
 	}
 
-	if (!(opt->detail))
+	if (!(opt->detail || opt->compactdetail))
 		return;
 
-	fprintf(opt->detailfile, "%Lu,", bitfield);
+	currentdpage->timesmapped = bitfield;
 
 	ret = lseek(fdpageflags, index, SEEK_SET);
 	handle_errno("seeking into kpageflags");
@@ -606,11 +621,11 @@ void use_pfn(uint64_t pfn, options *opt, int fdpageflags, int fdpagecount)
 
 	read(fdpageflags, &bitfield, sizeof(bitfield));
 	handle_errno("reading kpageflags");
-	print_flags(bitfield, opt->detailfile);
+	store_flags_in_page(bitfield, currentdpage);
 }
 
 void parse_bitfield(uint64_t bitfield, options *opt, int fdpageflags, 
-                    int fdpagecount, const vmastats *vmst)
+                    int fdpagecount, pagedetaildata *currentdpage)
 {
 /*
  * Prints the start of the detail line for each line, if requested to print 
@@ -624,35 +639,55 @@ void parse_bitfield(uint64_t bitfield, options *opt, int fdpageflags,
 
 	uint64_t pfnbits;
 
-	if (opt->detail)
-		fprintf(opt->detailfile, "%s,%s,", vmst->permissions, vmst->path);
 	if (opt->detail) {
 		uint64_t pageshift;
+
 		if (bitfield & PAGEPRESENT) 
-			fprintf(opt->detailfile, DETAIL_YESPRESENT DELIMITER);
+			currentdpage->present = 1;
 		else
-			fprintf(opt->detailfile, DETAIL_NOPRESENT DELIMITER);
+			currentdpage->present = 0;
 		pageshift = bitfield & PAGESHIFTBITS;
 		pageshift = pageshift >> PAGESHIFT;
-		fprintf(opt->detailfile, "%u" DELIMITER, 1 << pageshift); 
+		currentdpage->pageshift = pageshift;
 	}
 	if (bitfield & PAGESWAPPED) {
 		/*Omitting swap type and swap offset information*/
 		if (opt->detail)
-			fprintf(opt->detailfile, DETAIL_YESSWAP"\n");
+			currentdpage->swap = 1;
 		return;
 	}
 	if (opt->detail)
-		fprintf(opt->detailfile, DETAIL_NOSWAP DELIMITER);
+		currentdpage->swap = 0;
 	pfnbits = bitfield & PFNBITS;
 
 	if (opt->detail)
-		fprintf(opt->detailfile, "%llx" DELIMITER, pfnbits);
+		currentdpage->pfn = pfnbits;
 
-	use_pfn(pfnbits, opt, fdpageflags, fdpagecount);
+	use_pfn(pfnbits, opt, fdpageflags, fdpagecount, currentdpage);
 }
 
-void lookup_pagemap_with_addresses(uint32_t indexfrom, uint32_t indexto, 
+int
+are_pages_identical(pagedetaildata *page1, pagedetaildata *page2)
+{
+	/* omit addresses and pfn from identity check. */
+	if (page1 == NULL)                            return 0;
+	if (page1->vsts        != page2->vsts)        return 0;
+	if (page1->present     != page2->present)     return 0;
+	if (page1->pageshift   != page2->pageshift)   return 0;
+	if (page1->swap        != page2->swap)        return 0;
+	if (page1->timesmapped != page2->timesmapped) return 0;
+	if (page1->locked      != page2->locked)      return 0;
+	if (page1->referenced  != page2->referenced)  return 0;
+	if (page1->dirty       != page2->dirty)       return 0;
+	if (page1->anonymous   != page2->anonymous)   return 0;
+	if (page1->swapcache   != page2->swapcache)   return 0;
+	if (page1->swapbacked  != page2->swapbacked)  return 0;
+	if (page1->ksm         != page2->ksm)         return 0;
+	return 1;
+	
+}
+
+void lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto, 
                                    options *opt,
                                    int fdpageflags, int fdpagecount, 
                                    int fdpagemap, const vmastats *vmst)
@@ -664,14 +699,22 @@ void lookup_pagemap_with_addresses(uint32_t indexfrom, uint32_t indexto,
  */
 
 	size_t entrysize = sizeof(uint64_t);
-	uint32_t entryfrom = indexfrom * entrysize;
-	uint32_t entryto = indexto * entrysize;
+	size_t pagesize = getpagesize();
+	pagedetaildata *previousdpage = NULL;
+	pagedetaildata *currentdpage = calloc(1, sizeof(*currentdpage));
+
+	uint32_t entryfrom = addressfrom / pagesize;
+	uint32_t entryto = addressto / pagesize;
+	/* Multiplying and dividing done in separate steps because multiplying
+	 * address by entrysize often causes an overflow. 
+	 */
+	entryfrom *= entrysize;
+	entryto *= entrysize;
 
 	uint32_t i;
 	
 	for (i = entryfrom; i < entryto; i += entrysize) {
 		uint64_t bitfield;
-
 		uint32_t o = lseek(fdpagemap, i, SEEK_SET);
 
 		handle_errno("seeking in pagemap");
@@ -682,8 +725,26 @@ void lookup_pagemap_with_addresses(uint32_t indexfrom, uint32_t indexto,
 		}
 		read(fdpagemap, &bitfield, sizeof(bitfield));
 		handle_errno("reading in pagemap");
+
+		currentdpage->vsts = vmst;
+		currentdpage->addrstart = i * pagesize;
+		currentdpage->addrend = (i + 1) * pagesize;
+
 		parse_bitfield(bitfield, opt, 
-		               fdpageflags, fdpagecount, vmst);
+		               fdpageflags, fdpagecount, currentdpage);
+
+		/* Compare currentdpage with previousdpage and decide whether to
+                 * add it to the hashtable. */
+		if (are_pages_identical(previouspage, currentpage)) {
+			previouspage->addrend = currentpage->addrend;
+			memset(currentpage, 0, sizeof(*currentpage));
+		} else {
+			g_hash_table_insert(opt->detailpages, 
+			                    newkey(currentpage->addrstart), 
+			                    currentpage);
+			previouspage = currentpage;
+			currentpage = calloc(1, sizeof(*currentdpage));
+		}
 	}
 }
 
@@ -705,7 +766,6 @@ void lookup_maps_with_PID(pid_t pid, options *opt,int fdpageflags,
 	int fdpagemap;
 
 	char *pos = NULL;
-	size_t pagesize = getpagesize();
 
 	sprintf(pathbuf, "%s/%u/%s", PROC_PATH, pid, MAPS_FILENAME);
 	filemaps = fopen(pathbuf, "r");
@@ -743,8 +803,8 @@ void lookup_maps_with_PID(pid_t pid, options *opt,int fdpageflags,
 			*newlinepos = '\0';
 		}
 
-		lookup_pagemap_with_addresses(addrstart / pagesize, 
-		                              addrend / pagesize, opt,
+		lookup_pagemap_with_addresses(addrstart, 
+		                              addrend, opt,
 		                              fdpageflags, fdpagecount,
 		                              fdpagemap, &vmst);
 	}
