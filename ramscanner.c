@@ -149,13 +149,13 @@ typedef struct {
 	                        *   this region.
 	                        */
 	vmastats *vsts;        /**< Reference to the VMA the page belongs to. */
-	unit8_t  present;      /**< If the page is the page marked as present by
+	uint8_t  present;      /**< If the page is the page marked as present by
 	                        *   pagemap.
 	                        */
 	uint16_t size;         /**< The size of the page (it shouldn't vary), 
 	                        *   but is stored by pagemap.
 	                        */
-	unit8_t  swap;         /**< If the page is the page marked as swapped by
+	uint8_t  swap;         /**< If the page is the page marked as swapped by
 	                        *   pagemap.
 	                        */
 	uint16_t pfn;          /**< The Page Frame Number used to look up in
@@ -184,17 +184,28 @@ typedef struct {
  * All the information stored about how to run the program.
  */
 typedef struct {
-	uint8_t summary;           /**< Program will print a summary */
-	uint8_t detail;            /**< Program will print full details */
-	uint8_t compactdetail;     /**< Program will print compact details */
-	FILE *summaryfile;         /**< The file to print summary to */
-	FILE *detailfile;          /**< The file to print details to */
-	FILE *compactdetailfile;   /**< The file to print compact details to */
+	uint8_t summary;           /**< Program will print a summary. */
+	uint8_t detail;            /**< Program will print full details. */
+	uint8_t compactdetail;     /**< Program will print compact details. */
+	FILE *summaryfile;         /**< The file to print summary to. */
+	FILE *detailfile;          /**< The file to print details to. */
+	FILE *compactdetailfile;   /**< The file to print compact details to. */
 	pid_t *pids;               /**< The list of PIDs to work with, first
 	                            *   element is the primary PID, all others
-                                    *   are secondary PIDs
+                                    *   are secondary PIDs.
                                     */
 	uint16_t pidcount;         /**< The number of PIDs */
+	GHashTable *summarypages;  /**< Hash table of all the pages used for
+	                            *   summary. Stores a pagesummarydata and is
+	                            *   indexed by PFN.
+	                            */
+	GHashTable *detailpages;   /**< Hash table of all the pages used for
+	                            *   detail. Stores a pagedetaildata and is
+	                            *   indexed by pagemap address.
+	                            */
+	sizestats summarystats;   /**< sizestats holding information for the
+	                            *   summary.
+	                            */
 } options;
 
 
@@ -449,7 +460,6 @@ handle_args(int argc, char *argv[], options *opt)
 			printf("Received an unexpected option\n");
 		}
 	}
-
 }
 
 void set_signals()
@@ -518,8 +528,7 @@ void print_flags(uint64_t bitfield, FILE *const detail)
 	fprintf(detail, "\n");
 }
 
-void use_pfn(uint64_t pfn, options *opt, sizestats *stats, 
-             GHashTable *pages, int fdpageflags, int fdpagecount)
+void use_pfn(uint64_t pfn, options *opt, int fdpageflags, int fdpagecount)
 {
 /*
  * Looks up the hash table of pages to see if this page has been mapped before.
@@ -540,7 +549,7 @@ void use_pfn(uint64_t pfn, options *opt, sizestats *stats,
 	uint64_t index = pfn * elementsize;
 
 	pagesummarydata *pData = NULL;
-	pData = g_hash_table_lookup(pages, &pfn);
+	pData = g_hash_table_lookup(opt->summarypages, &pfn);
 
 	if ((pData == NULL)) {
 
@@ -557,7 +566,7 @@ void use_pfn(uint64_t pfn, options *opt, sizestats *stats,
 			handle_errno("allocating memory for new page info");
 			pData->procmapped = 1;
 			pData->memmapped = 0; /*Indicates a newly-mapped page*/
-			g_hash_table_insert(pages, newkey(pfn), pData);
+			g_hash_table_insert(opt->summarypages, newkey(pfn), pData);
 		}
 	} else {
 		pData->procmapped += 1;
@@ -580,7 +589,7 @@ void use_pfn(uint64_t pfn, options *opt, sizestats *stats,
 		/*This block of code is called only on a newly-mapped page*/
 		pData->memmapped = bitfield;
 		if (bitfield == 1)
-			stats->uss += getpagesize();
+			opt->summarystats.uss += getpagesize();
 	}
 
 	if (!(opt->detail))
@@ -600,8 +609,7 @@ void use_pfn(uint64_t pfn, options *opt, sizestats *stats,
 	print_flags(bitfield, opt->detailfile);
 }
 
-void parse_bitfield(uint64_t bitfield, options *opt, sizestats *stats, 
-                    GHashTable *pages, int fdpageflags, 
+void parse_bitfield(uint64_t bitfield, options *opt, int fdpageflags, 
                     int fdpagecount, const vmastats *vmst)
 {
 /*
@@ -626,8 +634,7 @@ void parse_bitfield(uint64_t bitfield, options *opt, sizestats *stats,
 			fprintf(opt->detailfile, DETAIL_NOPRESENT DELIMITER);
 		pageshift = bitfield & PAGESHIFTBITS;
 		pageshift = pageshift >> PAGESHIFT;
-		fprintf(opt->detailfile, "%u" DELIMITER, 1 << pageshift); /* page size 
-		                                                  * in bytes*/
+		fprintf(opt->detailfile, "%u" DELIMITER, 1 << pageshift); 
 	}
 	if (bitfield & PAGESWAPPED) {
 		/*Omitting swap type and swap offset information*/
@@ -642,12 +649,11 @@ void parse_bitfield(uint64_t bitfield, options *opt, sizestats *stats,
 	if (opt->detail)
 		fprintf(opt->detailfile, "%llx" DELIMITER, pfnbits);
 
-	use_pfn(pfnbits, opt, stats, pages, fdpageflags, fdpagecount);
+	use_pfn(pfnbits, opt, fdpageflags, fdpagecount);
 }
 
 void lookup_pagemap_with_addresses(uint32_t indexfrom, uint32_t indexto, 
-                                   options *opt, sizestats *stats, 
-                                   GHashTable *pages,
+                                   options *opt,
                                    int fdpageflags, int fdpagecount, 
                                    int fdpagemap, const vmastats *vmst)
 {
@@ -676,13 +682,12 @@ void lookup_pagemap_with_addresses(uint32_t indexfrom, uint32_t indexto,
 		}
 		read(fdpagemap, &bitfield, sizeof(bitfield));
 		handle_errno("reading in pagemap");
-		parse_bitfield(bitfield, opt, stats, pages, 
+		parse_bitfield(bitfield, opt, 
 		               fdpageflags, fdpagecount, vmst);
 	}
 }
 
-void lookup_maps_with_PID(pid_t pid, options *opt, sizestats *stats,  
-                          GHashTable *pages,int fdpageflags,
+void lookup_maps_with_PID(pid_t pid, options *opt,int fdpageflags,
                           int fdpagecount)
 {
 /*
@@ -739,9 +744,9 @@ void lookup_maps_with_PID(pid_t pid, options *opt, sizestats *stats,
 		}
 
 		lookup_pagemap_with_addresses(addrstart / pagesize, 
-		                              addrend / pagesize, opt, stats,
-		                              pages, fdpageflags, 
-		                              fdpagecount, fdpagemap, &vmst);
+		                              addrend / pagesize, opt,
+		                              fdpageflags, fdpagecount,
+		                              fdpagemap, &vmst);
 	}
 
 	fclose(filemaps);
@@ -750,8 +755,7 @@ void lookup_maps_with_PID(pid_t pid, options *opt, sizestats *stats,
 	handle_errno("closing pagemap file");
 }
 
-void inspect_processes(options *opt, 
-                       sizestats *stats, GHashTable *pages)
+void inspect_processes(options *opt)
 {
 /* 
  * Function to do most of the hard work. flags tell it what to do, and pids
@@ -766,15 +770,17 @@ void inspect_processes(options *opt,
 	int fdpagecount;/* ditto for /proc/kpagecount */
 	int i;
 
-	sprintf(pathbuf, "%s/%s", PROC_PATH, KPAGEFLAGS_FILENAME);
-	fdpageflags = open(pathbuf, O_RDONLY);
-	handle_errno("opening kpageflags file");
+	if (opt->detail || opt->compactdetail) {
+		sprintf(pathbuf, "%s/%s", PROC_PATH, KPAGEFLAGS_FILENAME);
+		fdpageflags = open(pathbuf, O_RDONLY);
+		handle_errno("opening kpageflags file");
+	}
 
 	sprintf(pathbuf, "%s/%s", PROC_PATH, KPAGECOUNT_FILENAME);
 	fdpagecount = open(pathbuf, O_RDONLY);
 	handle_errno("opening kpagecount file");
 
-	if (opt->detail)
+	/*if (opt->detail)
 		fprintf(opt->detailfile, DETAIL_PERMTITLE       DELIMITER 
 		                         DETAIL_PATHTITLE       DELIMITER 
 		                         DETAIL_PRESENTTITLE    DELIMITER 
@@ -788,30 +794,34 @@ void inspect_processes(options *opt,
 		                         DETAIL_ANONTITLE       DELIMITER
 		                         DETAIL_SWAPCACHETITLE  DELIMITER
 		                         DETAIL_SWAPBACKEDTITLE DELIMITER
-		                         DETAIL_KSMTITLE        "\n");
+		                         DETAIL_KSMTITLE        "\n"); 
+		only for printing*/
 
-	lookup_maps_with_PID(opt->pids[0], opt, stats, pages,
+	lookup_maps_with_PID(opt->pids[0], opt,
 	                     fdpageflags, fdpagecount);
 
 	if (opt->summary) {
-		g_hash_table_foreach(pages, countsss, stats);
+		g_hash_table_foreach(opt->summarypages, countsss,
+		                     &(opt->summarystats));
 
 		for (i = 1; i < opt->pidcount; i++) {
-			lookup_maps_with_PID(opt->pids[i], opt, stats, pages,
+			lookup_maps_with_PID(opt->pids[i], opt,
 			                     fdpageflags, fdpagecount);		
 		}
 
 
-		g_hash_table_foreach(pages, countgss, stats);
-		lookup_smaps(PIDs[0], stats);
+		g_hash_table_foreach(opt->summarypages, countgss,
+		                     &(opt->summarystats));
+		lookup_smaps(PIDs[0], &(opt->summarystats));
 
-		stats->uss /= KBSIZE;
-		stats->gss /= KBSIZE;
-		stats->sss /= KBSIZE;
+		opt->summarystats.uss /= KBSIZE;
+		opt->summarystats.gss /= KBSIZE;
+		opt->summarystats.sss /= KBSIZE;
 	}
-
-	close(fdpageflags);
-	handle_errno("closing kpageflags file");
+	if (opt->detail || opt->compactdetail) {
+		close(fdpageflags);
+		handle_errno("closing kpageflags file");
+	}
 	close(fdpagecount);
 	handle_errno("closing kpagecount file");
 	
@@ -828,12 +838,6 @@ int
 main(int argc, char *argv[])
 {
 
-	/* Hash table used to store information about individual pages */
-	GHashTable *pages = g_hash_table_new_full(g_int64_hash,
-	                                          g_int64_equal, 
-	                                          &destroyval, &destroyval);
-
-	sizestats stats = { 0 };
 	options opt = {0};
 	set_signals();
 
@@ -849,21 +853,37 @@ main(int argc, char *argv[])
 	PIDcount = opt.pidcount;
 	stop_PIDs(PIDs, PIDcount);
 
+	if (opt.summary) {
+		memset(&(opt.summarystats), 0, sizeof(opt.summarystats));
+		opt.summarypages = g_hash_table_new_full(g_int64_hash,
+		                                         g_int64_equal,
+		                                         &destroyval,
+		                                         &destroyval);
+	}
+	if (opt.detail || opt.compactdetail) {
+		opt.detailpages = g_hash_table_new_full(g_int64_hash,
+		                                         g_int64_equal,
+		                                         &destroyval,
+		                                         &destroyval);
+	}
+
 	if (opt.summary || opt.detail || opt.compactdetail)
-		inspect_processes(&opt, &stats,
-		                  pages);
+		inspect_processes(&opt);
 	else
 		printf("%s must specify at least one of -s and -d\n", argv[0]);
 
 	if (opt.summary)
-		write_summary(&stats, opt.summaryfile);
+		write_summary(&(opt.summarystats), opt.summaryfile);
 	if (opt.detailfile != NULL)
 		fclose(opt.detailfile);
 	if (opt.summaryfile != NULL)
 		fclose(opt.summaryfile);
 
 	cleanup(0);
-	g_hash_table_destroy(pages);
+	if (opt.summary)
+		g_hash_table_destroy(opt.summarypages);
+	if (opt.detail || opt.compactdetail)
+		g_hash_table_destroy(opt.detailpages);
 	free(PIDs);
 
 	exit(0);
