@@ -148,7 +148,7 @@ typedef struct {
 	uint32_t addrend;      /**< The address into the pagemap for the end of
 	                        *   this region.
 	                        */
-	vmastats *vsts;        /**< Reference to the VMA the page belongs to. */
+	const vmastats *vsts;  /**< Reference to the VMA the page belongs to. */
 	uint8_t  present;      /**< If the page is the page marked as present by
 	                        *   pagemap.
 	                        */
@@ -314,7 +314,7 @@ void countgss(void *key, void *value, void *data)
 	pagesummarydata *page = value;
 	sizestats *stats = data;
 	if (page->memmapped == page->procmapped)
-		stats->gss += pagesize;
+		stats->gss += pagesize/KBSIZE;
 }
 
 void countsss(void *key, void *value, void *data)
@@ -323,7 +323,7 @@ void countsss(void *key, void *value, void *data)
 	pagesummarydata *page = value;
 	sizestats *stats = data;
 	if (page->memmapped == page->procmapped)
-		stats->sss += pagesize;
+		stats->sss += pagesize/KBSIZE;
 }
 
 void handle_errno(const char *context)
@@ -530,7 +530,7 @@ void print_flags(uint64_t bitfield, FILE *const detail)
 */
 
 void
-store_flags_in_page(bitfield, pagedetaildata *currentdpage)
+store_flags_in_page(uint64_t bitfield, pagedetaildata *currentdpage)
 {
 	currentdpage->locked     = (bitfield & PAGEFLAG_LOCKED)     ? 1 : 0;
 	currentdpage->referenced = (bitfield & PAGEFLAG_REFERENCED) ? 1 : 0;
@@ -735,15 +735,15 @@ void lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto,
 
 		/* Compare currentdpage with previousdpage and decide whether to
                  * add it to the hashtable. */
-		if (are_pages_identical(previouspage, currentpage)) {
-			previouspage->addrend = currentpage->addrend;
-			memset(currentpage, 0, sizeof(*currentpage));
+		if (are_pages_identical(previousdpage, currentdpage)) {
+			previousdpage->addrend = currentdpage->addrend;
+			memset(currentdpage, 0, sizeof(*currentdpage));
 		} else {
 			g_hash_table_insert(opt->detailpages, 
-			                    newkey(currentpage->addrstart), 
-			                    currentpage);
-			previouspage = currentpage;
-			currentpage = calloc(1, sizeof(*currentdpage));
+			                    newkey(currentdpage->addrstart), 
+			                    currentdpage);
+			previousdpage = currentdpage;
+			currentdpage = calloc(1, sizeof(*currentdpage));
 		}
 	}
 }
@@ -861,11 +861,15 @@ void inspect_processes(options *opt)
 	                     fdpageflags, fdpagecount);
 
 	if (opt->summary) {
+		options opt2 = *opt;
 		g_hash_table_foreach(opt->summarypages, countsss,
 		                     &(opt->summarystats));
 
+		opt2.summary = 0;
+		opt2.detail = 0;
+		opt2.compactdetail = 0;
 		for (i = 1; i < opt->pidcount; i++) {
-			lookup_maps_with_PID(opt->pids[i], opt,
+			lookup_maps_with_PID(opt->pids[i], &opt2,
 			                     fdpageflags, fdpagecount);		
 		}
 
@@ -874,9 +878,6 @@ void inspect_processes(options *opt)
 		                     &(opt->summarystats));
 		lookup_smaps(PIDs[0], &(opt->summarystats));
 
-		opt->summarystats.uss /= KBSIZE;
-		opt->summarystats.gss /= KBSIZE;
-		opt->summarystats.sss /= KBSIZE;
 	}
 	if (opt->detail || opt->compactdetail) {
 		close(fdpageflags);
