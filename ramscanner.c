@@ -271,29 +271,6 @@ void write_summary(const sizestats *stats, FILE *summary)
 		
 }
 
-int fill_size_for_smaps_field(char *buff, const char *str, uint32_t *val, 
-                              FILE *file)
-{
-/*
- *Tries to find the string str in buff. If it does, it gets the rest of the line
- * and checks to see if it can find a number to add to val. If it does, returns
- * true
- */
-	size_t n = 0;
-	int temp;
-	if (strstr(buff, str)){
-		getline(&buff, &n, file);
-		if (sscanf (buff, "%d kB\n", &temp) > 0) {
-			*val += temp;
-			return 1;
-		} else {
-			return 0;
-		}
-	} else {
-		return 0;
-	}
-}
-
 void parse_smaps_file(FILE *file, sizestats *stats)
 {
 /*
@@ -303,22 +280,42 @@ void parse_smaps_file(FILE *file, sizestats *stats)
  */
 	char buffer[BUFSIZ];
 	char *pt = buffer;
+	char *pos = NULL;
 	size_t n = 0;
-	while (getdelim(&pt, &n, ':', file) > 0) {
-		if(fill_size_for_smaps_field(pt, SMAPS_VSS, 
-		   &(stats->vss), file)) {
-		} else if(fill_size_for_smaps_field(pt, SMAPS_PSS, 
-		          &(stats->pss), file)) {
-		} else if(fill_size_for_smaps_field(pt, SMAPS_RSS, 
-		          &(stats->rss), file)) {
-		} else if(fill_size_for_smaps_field(pt, SMAPS_REFD, 
-		          &(stats->refd), file)) {
-		} else if(fill_size_for_smaps_field(pt, SMAPS_ANON, 
-		          &(stats->anon), file)) {
-		} else if(fill_size_for_smaps_field(pt, SMAPS_SWAP, 
-		          &(stats->swap), file)) {
-		} else if(fill_size_for_smaps_field(pt, SMAPS_LOCKED, 
-		          &(stats->locked), file)) {
+	uint32_t temp;
+	uint32_t arg1;
+	uint32_t arg2;
+	while (getline(&pt, &n, file) > 0) {
+		if (sscanf(pt, "%x-%x", &arg1, &arg2) == 2) {
+			/* First line of a vma detected, do nothing. */
+		} else if (strstr(pt, SMAPS_VSS) != NULL) {
+			pos = strchr(pt, ':');
+			sscanf(pos + 1, "%d kB", &temp);
+			stats->vss += temp;
+		} else if (strstr(pt, SMAPS_RSS) != NULL) {
+			pos = strchr(pt, ':');
+			sscanf(pos + 1, "%d kB", &temp);
+			stats->rss += temp;
+		} else if (strstr(pt, SMAPS_PSS) != NULL) {
+			pos = strchr(pt, ':');
+			sscanf(pos + 1, "%d kB", &temp);
+			stats->pss += temp;
+		} else if (strstr(pt, SMAPS_REFD) != NULL) {
+			pos = strchr(pt, ':');
+			sscanf(pos + 1, "%d kB", &temp);
+			stats->refd += temp;
+		} else if (strstr(pt, SMAPS_ANON) != NULL) {
+			pos = strchr(pt, ':');
+			sscanf(pos + 1, "%d kB", &temp);
+			stats->anon += temp;
+		} else if (strstr(pt, SMAPS_SWAP) != NULL) {
+			pos = strchr(pt, ':');
+			sscanf(pos + 1, "%d kB", &temp);
+			stats->swap += temp;
+		} else if (strstr(pt, SMAPS_LOCKED) != NULL) {
+			pos = strchr(pt, ':');
+			sscanf(pos + 1, "%d kB", &temp);
+			stats->locked += temp;
 		}
 	}
 }
@@ -706,7 +703,13 @@ void lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto,
 	size_t entrysize = sizeof(uint64_t);
 	size_t pagesize = getpagesize();
 	pagedetaildata *previousdpage = NULL;
-	pagedetaildata *currentdpage = calloc(1, sizeof(*currentdpage));
+	pagedetaildata *currentdpage;
+	errno = 0;
+	currentdpage = calloc(1, sizeof(*currentdpage));
+	if (currentdpage == NULL) {
+		perror("Error occurred allocating memory for detail page");
+		cleanup_and_exit(EXIT_FAILURE);
+	}
 
 	uint32_t entryfrom = addressfrom / pagesize;
 	uint32_t entryto = addressto / pagesize;
@@ -759,7 +762,13 @@ void lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto,
 			                    newkey(currentdpage->addrstart), 
 			                    currentdpage);
 			previousdpage = currentdpage;
+			errno = 0;
 			currentdpage = calloc(1, sizeof(*currentdpage));
+			if (currentdpage == NULL) {
+				perror("Error occurred allocating memory for"
+				       " detail page");
+				cleanup_and_exit(EXIT_FAILURE);
+			}
 		}
 	}
 }
