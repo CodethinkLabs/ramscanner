@@ -940,7 +940,6 @@ print_page_detail_data(pagedetaildata *page, FILE *file, vmastats *vmst){
 	fprintf(file, "%s"DELIMITER, (page->ksm ? 
 	                              DETAIL_YESKSM : 
 	                              DETAIL_NOKSM ));
-	fprintf(file, "\n");
 
 }
 
@@ -954,7 +953,8 @@ write_compact_detail_page(void *key, void *val, void *userdata)
 	fprintf(opt->compactdetailfile, "%x" DELIMITER, page->addrstart);
 	fprintf(opt->compactdetailfile, "%x" DELIMITER, page->addrend);
 	print_page_detail_data(page, opt->compactdetailfile, currentvmst);			
-	fprintf(opt->compactdetailfile, "(%d identical pages)\n", pagecount);
+	fprintf(opt->compactdetailfile, "%d" DELIMITER" identical pages\n",
+	        pagecount);
 }
 
 void
@@ -970,6 +970,7 @@ write_detail_page(void *key, void *val, void *userdata)
 		fprintf(opt->detailfile, "%x" DELIMITER, i);
 		fprintf(opt->detailfile, "%x" DELIMITER, (i + size));
 		print_page_detail_data(page, opt->detailfile, currentvmst);
+		fprintf(opt->detailfile, "\n");
 	}
 }
 
