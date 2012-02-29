@@ -239,13 +239,20 @@ void destroyval(void *val)
 {
 	free(val);
 }
-
-void cleanup(int signal)
+/**
+ * Signal handler for abnormal termination. Tries its best to restart its 
+ * stopped processes, but cannot guarantee total signal safety.
+ */
+void 
+cleanup_and_exit(int signal)
 {
 	int i = 0;
 	for (i=0; i< PIDcount; i++)
 		kill(PIDs[i], SIGCONT); /* Clears the queue of STOP signals */
-	exit(0);
+	if (signal != EXIT_SUCCESS && signal != EXIT_FAILURE)
+		_exit(EXIT_FAILURE);
+	else
+		_exit(signal);
 }
 
 void write_summary(const sizestats *stats, FILE *summary)
@@ -334,26 +341,28 @@ void countsss(void *key, void *value, void *data)
 		stats->sss += pagesize/KBSIZE;
 }
 
-void handle_errno(const char *context)
-{
-/* Context refers to where the error took place */
-	if(errno){
-		fprintf(stderr, "Error occurred when %s, with error: %s\n", 
-			context, strerror(errno));
-		exit(EXIT_FAILURE);
-	}
-}
-
 void lookup_smaps(pid_t PID, sizestats *stats)
 {
 	char buffer[BUFSIZ];
 	FILE *file;
+	int ret;
 	sprintf(buffer, "%s/%d/%s", PROC_PATH, PID, SMAPS_FILENAME);
+	errno = 0;
 	file = fopen(buffer, "r");
-	handle_errno("opening smaps file");
+	if (file == NULL) {
+		perror("Error opening smaps file");
+		cleanup_and_exit(EXIT_FAILURE);
+	}
 	parse_smaps_file(file, stats);
-	fclose(file);
-	handle_errno("closing smaps file");
+	errno = 0;
+	ret = fclose(file);
+	if (ret != 0) {
+		perror("Error closing smaps file");
+		errno = 0; /* Continue as usual. It's not worthwhile crashing
+		            * because a file failed to close properly.
+		            */
+	}
+	
 }
 
 /**
@@ -477,7 +486,7 @@ void set_signals()
  * on early terminate
  */
 	struct sigaction sa;
-		sa.sa_handler = cleanup;
+		sa.sa_handler = cleanup_and_exit;
 	if (sigaction(SIGTERM, &sa, NULL) == -1){
 		fprintf(stderr, "Error: Failed to set handler"
 			" to SIGTERM.");
@@ -494,10 +503,15 @@ void stop_PIDs(const pid_t *pids, uint count)
 {
 	int i;
 	for (i = 0; i < count; i++) {
-		kill(pids[i], SIGSTOP);/*SIGSTOP overrides signal
-					*handling, consider SIGSTP*/
-
-		handle_errno("stopping process");
+		int ret;
+		errno = 0;
+		ret = kill(pids[i], SIGSTOP);/* SIGSTOP overrides signal
+		                              * handling, consider SIGSTP
+		                              */
+		if (ret == -1) {
+			perror("Error stopping PID");
+			cleanup_and_exit(EXIT_FAILURE);
+		}
 	}
 }
 
@@ -538,7 +552,7 @@ void use_pfn(uint64_t pfn, options *opt, int fdpageflags, int fdpagecount,
 	pagesummarydata *pData = NULL;
 	pData = g_hash_table_lookup(opt->summarypages, &pfn);
 
-	if ((pData == NULL)) {
+	if (pData == NULL) {
 
 	/*
 	 * flags containing neither is a special case, as it is impossible to 
@@ -549,8 +563,12 @@ void use_pfn(uint64_t pfn, options *opt, int fdpageflags, int fdpagecount,
 	 */
 
 		if (opt->summary || opt->detail || opt->compactdetail) {
+			errno = 0;
 			pData = malloc(sizeof(*pData));
-			handle_errno("allocating memory for new page info");
+			if (pData == NULL) {
+				perror("Error allocating page summary data");
+				cleanup_and_exit(EXIT_FAILURE);
+			}
 			pData->procmapped = 1;
 			pData->memmapped = 0; /*Indicates a newly-mapped page*/
 			g_hash_table_insert(opt->summarypages, newkey(pfn), pData);
@@ -562,15 +580,23 @@ void use_pfn(uint64_t pfn, options *opt, int fdpageflags, int fdpagecount,
 	if (!(opt->summary || opt->detail || opt->compactdetail))
 		return;
 
+	errno = 0;
 	ret = lseek(fdpagecount, index, SEEK_SET);
-	handle_errno("seeking into kpagecount");
+	if (ret == -1) {
+		perror("Error seeking in kpagecount");
+		cleanup_and_exit(EXIT_FAILURE);
+	}
 	if (ret != index) {
 		fprintf(stderr, "Error occurred seeking into kpagecount\n");
-		exit(EXIT_FAILURE);
+		cleanup_and_exit(EXIT_FAILURE);
 	}
 
-	read(fdpagecount, &bitfield, sizeof(bitfield));
-	handle_errno("reading kpagecount");
+	errno = 0;
+	ret = read(fdpagecount, &bitfield, sizeof(bitfield));
+	if (ret == -1) {
+		perror("Error reading kpagecount");
+		cleanup_and_exit(EXIT_FAILURE);
+	}
 
 	if (opt->summary && (pData->memmapped == 0)) {
 		/* This block of code is called only on a newly-mapped page. */
@@ -583,16 +609,22 @@ void use_pfn(uint64_t pfn, options *opt, int fdpageflags, int fdpagecount,
 		return;
 
 	currentdpage->timesmapped = bitfield;
-
+	errno = 0;
 	ret = lseek(fdpageflags, index, SEEK_SET);
-	handle_errno("seeking into kpageflags");
+	if (ret == -1) {
+		perror("Error seeking in kpageflags");
+		cleanup_and_exit(EXIT_FAILURE);
+	}
 	if (ret != index) {
 		fprintf(stderr, "Error occurred seeking into kpageflags\n");
-		exit(EXIT_FAILURE);
+		cleanup_and_exit(EXIT_FAILURE);
 	}
-
-	read(fdpageflags, &bitfield, sizeof(bitfield));
-	handle_errno("reading kpageflags");
+	errno = 0;
+	ret = read(fdpageflags, &bitfield, sizeof(bitfield));
+	if (ret == -1) {
+		perror("Error reading kpageflags");
+		cleanup_and_exit(EXIT_FAILURE);
+	}
 	store_flags_in_page(bitfield, currentdpage);
 }
 
@@ -688,17 +720,26 @@ void lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto,
 	
 	for (i = entryfrom; i < entryto; i += entrysize) {
 		int inum = i / entrysize;
+		int ret;
 		uint64_t bitfield;
-		uint32_t o = lseek(fdpagemap, i, SEEK_SET);
+		uint32_t o;
 
-		handle_errno("seeking in pagemap");
-
+		errno = 0;
+		o = lseek(fdpagemap, i, SEEK_SET);
+		if (o == -1) {
+			perror("Error seeking in pagemap");
+			cleanup_and_exit(EXIT_FAILURE);
+		}
 		if (o != i) {
 			fprintf(stderr, "Error occurred seeking in pagemap");
-			exit(EXIT_FAILURE);
+			cleanup_and_exit(EXIT_FAILURE);
 		}
-		read(fdpagemap, &bitfield, sizeof(bitfield));
-		handle_errno("reading in pagemap");
+		errno = 0;
+		ret = read(fdpagemap, &bitfield, sizeof(bitfield));
+		if (ret == -1) {
+			perror("Error reading pagemap");
+			cleanup_and_exit(EXIT_FAILURE);
+		}
 
 		currentdpage->vmaindex = vmaindex;
 		currentdpage->addrstart = inum * pagesize;
@@ -733,8 +774,7 @@ make_another_vmst_in_opt(options *opt)
 	temp = realloc(opt->vmas, sizeof(*temp) * (opt->vmacount + 1));
 	if (temp == NULL) {
 		perror("Error allocating new vmastats");
-		cleanup(0);
-		exit(EXIT_FAILURE);
+		cleanup_and_exit(EXIT_FAILURE);
 	}
 	opt->vmas = temp;
 	(opt->vmacount)++;
@@ -759,32 +799,44 @@ void lookup_maps_with_PID(pid_t pid, options *opt,int fdpageflags,
 	char buffer[BUFSIZ]; /* Buffer for storing lines read from file*/
 	FILE *filemaps;
 	int fdpagemap;
-
+	int ret;
 	char *pos = NULL;
 
 	sprintf(pathbuf, "%s/%u/%s", PROC_PATH, pid, MAPS_FILENAME);
+	errno = 0;
 	filemaps = fopen(pathbuf, "r");
-	handle_errno("opening maps file");
+	if (filemaps == NULL) {
+		perror("Error opening maps file");
+		cleanup_and_exit(EXIT_FAILURE);
+	}
 
 	sprintf(pathbuf, "%s/%u/%s", PROC_PATH, pid, PAGEMAP_FILENAME);
+	errno = 0;
 	fdpagemap = open(pathbuf, O_RDONLY);
-	handle_errno("opening pagemap file");
+	if (fdpagemap == NULL) {
+		perror("Error opening pagemap file");
+		cleanup_and_exit(EXIT_FAILURE);
+	}
 
 	while (fgets(buffer, BUFSIZ, filemaps) != NULL) {
 		vmastats *vmst = make_another_vmst_in_opt(opt);
 		uint16_t vmaindex = opt->vmacount - 1;
 		uint32_t addrstart;
 		uint32_t addrend;
-		int ret;
-		
+
+		errno = 0;
 		ret = sscanf(buffer, "%x-%x %4s", &addrstart, &addrend,
 		             vmst->permissions);
-		handle_errno("parsing addresses from a line of maps file");
+		if (ret == EOF && errno != 0) {
+			perror("Error parsing addresses from a line of maps"
+			       " file");
+			cleanup_and_exit(EXIT_FAILURE);
+		}
 
 		if (ret < 3){
 			fprintf(stderr, "Error: Unexpected format of line in"
  					"maps.\n");
-			exit(EXIT_FAILURE);
+			cleanup_and_exit(EXIT_FAILURE);
 		}
 
 		if ((pos = strchr(buffer, '/')) != NULL) {
@@ -805,10 +857,18 @@ void lookup_maps_with_PID(pid_t pid, options *opt,int fdpageflags,
 		                              fdpagemap, vmaindex);
 	}
 
-	fclose(filemaps);
-	handle_errno("closing maps file");
-	close(fdpagemap);
-	handle_errno("closing pagemap file");
+	errno = 0;
+	ret = fclose(filemaps);
+	if (ret == EOF) {
+		perror("Error closing maps file");
+		errno = 0;
+	}
+	errno = 0;
+	ret = close(fdpagemap);
+	if (ret == EOF) {
+		perror("Error closing pagemap file");
+		errno = 0;
+	}
 }
 
 void inspect_processes(options *opt)
@@ -825,33 +885,25 @@ void inspect_processes(options *opt)
 	int fdpageflags;/* file descriptor for /proc/kpageflags */
 	int fdpagecount;/* ditto for /proc/kpagecount */
 	int i;
+	int ret;
 
 	if (opt->detail || opt->compactdetail) {
 		sprintf(pathbuf, "%s/%s", PROC_PATH, KPAGEFLAGS_FILENAME);
+		errno = 0;
 		fdpageflags = open(pathbuf, O_RDONLY);
-		handle_errno("opening kpageflags file");
+		if (fdpageflags == -1) {
+			perror("Error occurred opening kpageflags");
+			cleanup_and_exit(EXIT_FAILURE);
+		}
 	}
 
 	sprintf(pathbuf, "%s/%s", PROC_PATH, KPAGECOUNT_FILENAME);
+	errno = 0;
 	fdpagecount = open(pathbuf, O_RDONLY);
-	handle_errno("opening kpagecount file");
-
-	/*if (opt->detail)
-		fprintf(opt->detailfile, DETAIL_PERMTITLE       DELIMITER 
-		                         DETAIL_PATHTITLE       DELIMITER 
-		                         DETAIL_PRESENTTITLE    DELIMITER 
-		                         DETAIL_SIZETITLE       DELIMITER 
-		                         DETAIL_SWAPTITLE       DELIMITER 
-		                         DETAIL_PFNTITLE        DELIMITER
-		                         DETAIL_MAPPEDTITLE     DELIMITER 
-		                         DETAIL_LOCKEDTITLE     DELIMITER
-		                         DETAIL_REFDTITLE       DELIMITER
-		                         DETAIL_DIRTYTITLE      DELIMITER
-		                         DETAIL_ANONTITLE       DELIMITER
-		                         DETAIL_SWAPCACHETITLE  DELIMITER
-		                         DETAIL_SWAPBACKEDTITLE DELIMITER
-		                         DETAIL_KSMTITLE        "\n"); 
-		only for printing*/
+	if (fdpagecount == -1) {
+		perror("Error occurred opening kpagecount");
+		cleanup_and_exit(EXIT_FAILURE);
+	}
 
 	lookup_maps_with_PID(opt->pids[0], opt,
 	                     fdpageflags, fdpagecount);
@@ -876,11 +928,19 @@ void inspect_processes(options *opt)
 
 	}
 	if (opt->detail || opt->compactdetail) {
-		close(fdpageflags);
-		handle_errno("closing kpageflags file");
+		errno = 0;
+		ret = close(fdpageflags);
+		if (ret == -1) {
+			perror("Error closing kpageflags file");
+			errno = 0;
+		}
 	}
-	close(fdpagecount);
-	handle_errno("closing kpagecount file");
+	errno = 0;
+	ret = close(fdpagecount);
+	if (ret == -1) {
+		perror("Error closing kpagecount file");
+		errno = 0;
+	}
 	
 }
 
@@ -1048,7 +1108,6 @@ main(int argc, char *argv[])
 	if (opt.summaryfile != NULL)
 		fclose(opt.summaryfile);
 
-	cleanup(0);
 
 	free(opt.vmas);
 	if (opt.summary)
@@ -1057,5 +1116,5 @@ main(int argc, char *argv[])
 		g_hash_table_destroy(opt.detailpages);
 	free(PIDs);
 
-	exit(0);
+	cleanup_and_exit(EXIT_SUCCESS);
 }
