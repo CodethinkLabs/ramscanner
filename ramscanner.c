@@ -271,7 +271,7 @@ void write_summary(const sizestats *stats, FILE *summary)
 		
 }
 
-int fill_size_for_smaps_field(char *buff, const char *str, uint *val, 
+int fill_size_for_smaps_field(char *buff, const char *str, uint32_t *val, 
                               FILE *file)
 {
 /*
@@ -499,7 +499,7 @@ void set_signals()
 	}
 }
 
-void stop_PIDs(const pid_t *pids, uint count)
+void stop_PIDs(const pid_t *pids, uint16_t count)
 {
 	int i;
 	for (i = 0; i < count; i++) {
