@@ -639,22 +639,23 @@ void parse_bitfield(uint64_t bitfield, options *opt, int fdpageflags,
 }
 
 int
-are_pages_identical(pagedetaildata *page1, pagedetaildata *page2)
+are_pages_identical_and_adjacent(pagedetaildata *prev, pagedetaildata *curr)
 {
 	/* omit addresses and pfn from identity check. */
-	if (page1 == NULL)                            return 0;
-	if (page1->vmaindex    != page2->vmaindex)    return 0;
-	if (page1->present     != page2->present)     return 0;
-	if (page1->pageshift   != page2->pageshift)   return 0;
-	if (page1->swap        != page2->swap)        return 0;
-	if (page1->timesmapped != page2->timesmapped) return 0;
-	if (page1->locked      != page2->locked)      return 0;
-	if (page1->referenced  != page2->referenced)  return 0;
-	if (page1->dirty       != page2->dirty)       return 0;
-	if (page1->anonymous   != page2->anonymous)   return 0;
-	if (page1->swapcache   != page2->swapcache)   return 0;
-	if (page1->swapbacked  != page2->swapbacked)  return 0;
-	if (page1->ksm         != page2->ksm)         return 0;
+	if (prev == NULL)                           return 0;
+	if (prev->addrend     != curr->addrstart)   return 0;
+	if (prev->vmaindex    != curr->vmaindex)    return 0;
+	if (prev->present     != curr->present)     return 0;
+	if (prev->pageshift   != curr->pageshift)   return 0;
+	if (prev->swap        != curr->swap)        return 0;
+	if (prev->timesmapped != curr->timesmapped) return 0;
+	if (prev->locked      != curr->locked)      return 0;
+	if (prev->referenced  != curr->referenced)  return 0;
+	if (prev->dirty       != curr->dirty)       return 0;
+	if (prev->anonymous   != curr->anonymous)   return 0;
+	if (prev->swapcache   != curr->swapcache)   return 0;
+	if (prev->swapbacked  != curr->swapbacked)  return 0;
+	if (prev->ksm         != curr->ksm)         return 0;
 	return 1;
 	
 }
@@ -686,6 +687,7 @@ void lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto,
 	uint32_t i;
 	
 	for (i = entryfrom; i < entryto; i += entrysize) {
+		int inum = i / entrysize;
 		uint64_t bitfield;
 		uint32_t o = lseek(fdpagemap, i, SEEK_SET);
 
@@ -699,15 +701,16 @@ void lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto,
 		handle_errno("reading in pagemap");
 
 		currentdpage->vmaindex = vmaindex;
-		currentdpage->addrstart = i * pagesize;
-		currentdpage->addrend = (i + 1) * pagesize;
+		currentdpage->addrstart = inum * pagesize;
+		currentdpage->addrend = (inum + 1) * pagesize;
 
 		parse_bitfield(bitfield, opt, 
 		               fdpageflags, fdpagecount, currentdpage);
 
 		/* Compare currentdpage with previousdpage and decide whether to
                  * add it to the hashtable. */
-		if (are_pages_identical(previousdpage, currentdpage)) {
+		if (are_pages_identical_and_adjacent(previousdpage,
+		                                     currentdpage)) {
 			previousdpage->addrend = currentdpage->addrend;
 			memset(currentdpage, 0, sizeof(*currentdpage));
 		} else {
@@ -950,8 +953,8 @@ write_compact_detail_page(void *key, void *val, void *userdata)
 	pagedetaildata *page = val;
 	vmastats *currentvmst = &(opt->vmas[page->vmaindex]);
 	uint32_t pagecount = (page->addrend - page->addrstart) / getpagesize();
-	fprintf(opt->compactdetailfile, "%x" DELIMITER, page->addrstart);
-	fprintf(opt->compactdetailfile, "%x" DELIMITER, page->addrend);
+	fprintf(opt->compactdetailfile, "%08x" DELIMITER, page->addrstart);
+	fprintf(opt->compactdetailfile, "%08x" DELIMITER, page->addrend);
 	print_page_detail_data(page, opt->compactdetailfile, currentvmst);			
 	fprintf(opt->compactdetailfile, "%d" DELIMITER" identical pages\n",
 	        pagecount);
