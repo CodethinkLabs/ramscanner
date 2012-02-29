@@ -148,7 +148,9 @@ typedef struct {
 	uint32_t addrend;      /**< The address into the pagemap for the end of
 	                        *   this region.
 	                        */
-	const vmastats *vsts;  /**< Reference to the VMA the page belongs to. */
+	uint16_t vmaindex;     /**< Index into options.vmas to find the 
+	                        *   associated vmastats.
+	                        */
 	uint8_t  present;      /**< If the page is the page marked as present by
 	                        *   pagemap.
 	                        */
@@ -498,42 +500,6 @@ void stop_PIDs(const pid_t *pids, uint count)
 		handle_errno("stopping process");
 	}
 }
-/* COMMENTED OUT AS CURRENTLY UNUSED. MAY BE REPURPOSED LATER.
-void print_detail_from_condition(uint32_t condition, const char *truestring, 
-const char *falsestring, FILE *const file)
-{
-	if(condition)
-		fprintf(file, "%s", truestring);
-	else
-		fprintf(file, "%s", falsestring);
-} 
-
-void print_flags(uint64_t bitfield, FILE *const detail)
-{
-	print_detail_from_condition(bitfield & PAGEFLAG_LOCKED,
-	                            DETAIL_YESLOCKED DELIMITER, 
-	                            DETAIL_NOLOCKED  DELIMITER, detail);
-	print_detail_from_condition(bitfield & PAGEFLAG_REFERENCED,
-	                            DETAIL_YESREFD DELIMITER, 
-	                            DETAIL_NOREFD  DELIMITER, detail);
-	print_detail_from_condition(bitfield & PAGEFLAG_DIRTY,
-	                            DETAIL_YESDIRTY DELIMITER,
-	                            DETAIL_NODIRTY  DELIMITER, detail);
-	print_detail_from_condition(bitfield & PAGEFLAG_ANON,
-	                            DETAIL_YESANON DELIMITER,
-	                            DETAIL_NOANON  DELIMITER, detail);
-	print_detail_from_condition(bitfield & PAGEFLAG_SWAPCACHE,
-	                            DETAIL_YESSWAPCACHE DELIMITER,
-	                            DETAIL_NOSWAPCACHE  DELIMITER, detail);
-	print_detail_from_condition(bitfield & PAGEFLAG_SWAPBACKED,
-	                            DETAIL_YESSWAPBACKED DELIMITER,
-	                            DETAIL_NOSWAPBACKED  DELIMITER, detail);
-	print_detail_from_condition(bitfield & PAGEFLAG_KSM,
-	                            DETAIL_YESKSM DELIMITER,
-	                            DETAIL_NOKSM  DELIMITER, detail);
-	fprintf(detail, "\n");
-}
-*/
 
 void
 store_flags_in_page(uint64_t bitfield, pagedetaildata *currentdpage)
@@ -677,7 +643,7 @@ are_pages_identical(pagedetaildata *page1, pagedetaildata *page2)
 {
 	/* omit addresses and pfn from identity check. */
 	if (page1 == NULL)                            return 0;
-	if (page1->vsts        != page2->vsts)        return 0;
+	if (page1->vmaindex    != page2->vmaindex)    return 0;
 	if (page1->present     != page2->present)     return 0;
 	if (page1->pageshift   != page2->pageshift)   return 0;
 	if (page1->swap        != page2->swap)        return 0;
@@ -696,7 +662,7 @@ are_pages_identical(pagedetaildata *page1, pagedetaildata *page2)
 void lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto, 
                                    options *opt,
                                    int fdpageflags, int fdpagecount, 
-                                   int fdpagemap, const vmastats *vmst)
+                                   int fdpagemap, uint16_t vmaindex)
 {
 /*
  * Looks up every entry over the index range in pagemap and reads the 64-bit
@@ -732,7 +698,7 @@ void lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto,
 		read(fdpagemap, &bitfield, sizeof(bitfield));
 		handle_errno("reading in pagemap");
 
-		currentdpage->vsts = vmst;
+		currentdpage->vmaindex = vmaindex;
 		currentdpage->addrstart = i * pagesize;
 		currentdpage->addrend = (i + 1) * pagesize;
 
@@ -803,6 +769,7 @@ void lookup_maps_with_PID(pid_t pid, options *opt,int fdpageflags,
 
 	while (fgets(buffer, BUFSIZ, filemaps) != NULL) {
 		vmastats *vmst = make_another_vmst_in_opt(opt);
+		uint16_t vmaindex = opt->vmacount - 1;
 		uint32_t addrstart;
 		uint32_t addrend;
 		int ret;
@@ -832,7 +799,7 @@ void lookup_maps_with_PID(pid_t pid, options *opt,int fdpageflags,
 		lookup_pagemap_with_addresses(addrstart, 
 		                              addrend, opt,
 		                              fdpageflags, fdpagecount,
-		                              fdpagemap, vmst);
+		                              fdpagemap, vmaindex);
 	}
 
 	fclose(filemaps);
@@ -936,18 +903,18 @@ print_detail_format(FILE *file)
 }
 
 void
-print_page_detail_data(pagedetaildata *page, FILE *file){
+print_page_detail_data(pagedetaildata *page, FILE *file, vmastats *vmst){
 
 
-	fprintf(file, "%5s"DELIMITER,page->vsts->permissions);
-	fprintf(file, "%s"DELIMITER,page->vsts->path);
-	fprintf(file, "%s"DELIMITER, (page->present ? 
-	                              DETAIL_YESPRESENT : 
-	                              DETAIL_NOPRESENT ));
-	fprintf(file, "%d"DELIMITER, (1 << page->pageshift));
-	fprintf(file, "%s"DELIMITER, (page->swap ? 
-	                              DETAIL_YESSWAP : 
-	                              DETAIL_NOSWAP ));
+	fprintf(file, "%5s"DELIMITER,  vmst->permissions);
+	fprintf(file, "%s" DELIMITER,  vmst->path);
+	fprintf(file, "%s" DELIMITER, (page->present ? 
+	                               DETAIL_YESPRESENT : 
+	                               DETAIL_NOPRESENT ));
+	fprintf(file, "%d" DELIMITER, (1 << page->pageshift));
+	fprintf(file, "%s" DELIMITER, (page->swap ? 
+	                               DETAIL_YESSWAP : 
+	                               DETAIL_NOSWAP ));
 	/* PFN OMITTED
 	 * fprintf(file, "%llx"DELIMITER, (page->pfn ? page->pfn : ""));
 	 */
@@ -982,10 +949,11 @@ write_compact_detail_page(void *key, void *val, void *userdata)
 {
 	options *opt = userdata;
 	pagedetaildata *page = val;
+	vmastats *currentvmst = &(opt->vmas[page->vmaindex]);
 	uint32_t pagecount = (page->addrend - page->addrstart) / getpagesize();
 	fprintf(opt->compactdetailfile, "%x" DELIMITER, page->addrstart);
 	fprintf(opt->compactdetailfile, "%x" DELIMITER, page->addrend);
-	print_page_detail_data(page, opt->compactdetailfile);			
+	print_page_detail_data(page, opt->compactdetailfile, currentvmst);			
 	fprintf(opt->compactdetailfile, "(%d identical pages)\n", pagecount);
 }
 
@@ -994,13 +962,14 @@ write_detail_page(void *key, void *val, void *userdata)
 {
 	options *opt = userdata;
 	pagedetaildata *page = val;
+	vmastats *currentvmst = &(opt->vmas[page->vmaindex]);
 	uint32_t i;
 	size_t size = getpagesize();
 
 	for (i = page->addrstart; i < page->addrend; i += size) {
 		fprintf(opt->detailfile, "%x" DELIMITER, i);
 		fprintf(opt->detailfile, "%x" DELIMITER, (i + size));
-		print_page_detail_data(page, opt->detailfile);
+		print_page_detail_data(page, opt->detailfile, currentvmst);
 	}
 }
 
