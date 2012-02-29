@@ -525,8 +525,9 @@ store_flags_in_page(uint64_t bitfield, pagedetaildata *currentdpage)
 
 }
 
-void use_pfn(uint64_t pfn, options *opt, int fdpageflags, int fdpagecount, 
-             pagedetaildata *currentdpage)
+void
+use_pfn(uint64_t pfn, options *opt, FILE *filepageflags, FILE *filepagecount, 
+        pagedetaildata *currentdpage)
 {
 /*
  * Looks up the hash table of pages to see if this page has been mapped before.
@@ -578,19 +579,15 @@ void use_pfn(uint64_t pfn, options *opt, int fdpageflags, int fdpagecount,
 		return;
 
 	errno = 0;
-	ret = lseek(fdpagecount, index, SEEK_SET);
+	ret = fseek(filepagecount, index, SEEK_SET);
 	if (ret == -1) {
 		perror("Error seeking in kpagecount");
 		cleanup_and_exit(EXIT_FAILURE);
 	}
-	if (ret != index) {
-		fprintf(stderr, "Error occurred seeking into kpagecount\n");
-		cleanup_and_exit(EXIT_FAILURE);
-	}
 
 	errno = 0;
-	ret = read(fdpagecount, &bitfield, sizeof(bitfield));
-	if (ret == -1) {
+	ret = fread(&bitfield, sizeof(bitfield), 1, filepagecount);
+	if (ret != 1) {
 		perror("Error reading kpagecount");
 		cleanup_and_exit(EXIT_FAILURE);
 	}
@@ -607,26 +604,22 @@ void use_pfn(uint64_t pfn, options *opt, int fdpageflags, int fdpagecount,
 
 	currentdpage->timesmapped = bitfield;
 	errno = 0;
-	ret = lseek(fdpageflags, index, SEEK_SET);
+	ret = fseek(filepageflags, index, SEEK_SET);
 	if (ret == -1) {
 		perror("Error seeking in kpageflags");
 		cleanup_and_exit(EXIT_FAILURE);
 	}
-	if (ret != index) {
-		fprintf(stderr, "Error occurred seeking into kpageflags\n");
-		cleanup_and_exit(EXIT_FAILURE);
-	}
 	errno = 0;
-	ret = read(fdpageflags, &bitfield, sizeof(bitfield));
-	if (ret == -1) {
+	ret = fread(&bitfield, sizeof(bitfield), 1, filepageflags);
+	if (ret != 1) {
 		perror("Error reading kpageflags");
 		cleanup_and_exit(EXIT_FAILURE);
 	}
 	store_flags_in_page(bitfield, currentdpage);
 }
 
-void parse_bitfield(uint64_t bitfield, options *opt, int fdpageflags, 
-                    int fdpagecount, pagedetaildata *currentdpage)
+void parse_bitfield(uint64_t bitfield, options *opt, FILE *filepageflags, 
+                    FILE *filepagecount, pagedetaildata *currentdpage)
 {
 /*
  * Prints the start of the detail line for each line, if requested to print 
@@ -664,7 +657,7 @@ void parse_bitfield(uint64_t bitfield, options *opt, int fdpageflags,
 	if (opt->detail)
 		currentdpage->pfn = pfnbits;
 
-	use_pfn(pfnbits, opt, fdpageflags, fdpagecount, currentdpage);
+	use_pfn(pfnbits, opt, filepageflags, filepagecount, currentdpage);
 }
 
 int
@@ -689,10 +682,11 @@ are_pages_identical_and_adjacent(pagedetaildata *prev, pagedetaildata *curr)
 	
 }
 
-void lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto, 
-                                   options *opt,
-                                   int fdpageflags, int fdpagecount, 
-                                   int fdpagemap, uint16_t vmaindex)
+void
+lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto, 
+                              options *opt, FILE *filepageflags,
+                              FILE *filepagecount, FILE *filepagemap,
+                              uint16_t vmaindex)
 {
 /*
  * Looks up every entry over the index range in pagemap and reads the 64-bit
@@ -728,18 +722,14 @@ void lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto,
 		uint32_t o;
 
 		errno = 0;
-		o = lseek(fdpagemap, i, SEEK_SET);
+		o = fseek(filepagemap, i, SEEK_SET);
 		if (o == -1) {
 			perror("Error seeking in pagemap");
 			cleanup_and_exit(EXIT_FAILURE);
 		}
-		if (o != i) {
-			fprintf(stderr, "Error occurred seeking in pagemap");
-			cleanup_and_exit(EXIT_FAILURE);
-		}
 		errno = 0;
-		ret = read(fdpagemap, &bitfield, sizeof(bitfield));
-		if (ret == -1) {
+		ret = fread(&bitfield, sizeof(bitfield), 1, filepagemap);
+		if (ret != 1) {
 			perror("Error reading pagemap");
 			cleanup_and_exit(EXIT_FAILURE);
 		}
@@ -749,7 +739,7 @@ void lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto,
 		currentdpage->addrend = (inum + 1) * pagesize;
 
 		parse_bitfield(bitfield, opt, 
-		               fdpageflags, fdpagecount, currentdpage);
+		               filepageflags, filepagecount, currentdpage);
 
 		/* Compare currentdpage with previousdpage and decide whether to
                  * add it to the hashtable. */
@@ -792,8 +782,9 @@ make_another_vmst_in_opt(options *opt)
 	return newelement;
 }
 
-void lookup_maps_with_PID(pid_t pid, options *opt,int fdpageflags,
-                          int fdpagecount)
+void
+lookup_maps_with_PID(pid_t pid, options *opt, FILE *filepageflags, 
+                     FILE *filepagecount)
 {
 /*
  * Uses the PID to access the appropriate /proc/PID/maps file, which contains
@@ -807,7 +798,7 @@ void lookup_maps_with_PID(pid_t pid, options *opt,int fdpageflags,
 	char pathbuf[PATH_MAX];
 	char buffer[BUFSIZ]; /* Buffer for storing lines read from file*/
 	FILE *filemaps;
-	int fdpagemap;
+	FILE *filepagemap;
 	int ret;
 	char *pos = NULL;
 
@@ -821,8 +812,8 @@ void lookup_maps_with_PID(pid_t pid, options *opt,int fdpageflags,
 
 	sprintf(pathbuf, "%s/%u/%s", PROC_PATH, pid, PAGEMAP_FILENAME);
 	errno = 0;
-	fdpagemap = open(pathbuf, O_RDONLY);
-	if (fdpagemap == -1) {
+	filepagemap = fopen(pathbuf, "r");
+	if (filepagemap == NULL) {
 		perror("Error opening pagemap file");
 		cleanup_and_exit(EXIT_FAILURE);
 	}
@@ -862,8 +853,8 @@ void lookup_maps_with_PID(pid_t pid, options *opt,int fdpageflags,
 
 		lookup_pagemap_with_addresses(addrstart, 
 		                              addrend, opt,
-		                              fdpageflags, fdpagecount,
-		                              fdpagemap, vmaindex);
+		                              filepageflags, filepagecount,
+		                              filepagemap, vmaindex);
 	}
 
 	errno = 0;
@@ -873,7 +864,7 @@ void lookup_maps_with_PID(pid_t pid, options *opt,int fdpageflags,
 		errno = 0;
 	}
 	errno = 0;
-	ret = close(fdpagemap);
+	ret = fclose(filepagemap);
 	if (ret == EOF) {
 		perror("Error closing pagemap file");
 		errno = 0;
@@ -891,16 +882,16 @@ void inspect_processes(options *opt)
 
 	char pathbuf[PATH_MAX]; /* Buffer for storing path to open files*/
 
-	int fdpageflags;/* file descriptor for /proc/kpageflags */
-	int fdpagecount;/* ditto for /proc/kpagecount */
+	FILE *filepageflags;/* file descriptor for /proc/kpageflags */
+	FILE *filepagecount;/* ditto for /proc/kpagecount */
 	int i;
 	int ret;
 
 	if (opt->detail || opt->compactdetail) {
 		sprintf(pathbuf, "%s/%s", PROC_PATH, KPAGEFLAGS_FILENAME);
 		errno = 0;
-		fdpageflags = open(pathbuf, O_RDONLY);
-		if (fdpageflags == -1) {
+		filepageflags = fopen(pathbuf, "r");
+		if (filepageflags == NULL) {
 			perror("Error occurred opening kpageflags");
 			cleanup_and_exit(EXIT_FAILURE);
 		}
@@ -908,14 +899,14 @@ void inspect_processes(options *opt)
 
 	sprintf(pathbuf, "%s/%s", PROC_PATH, KPAGECOUNT_FILENAME);
 	errno = 0;
-	fdpagecount = open(pathbuf, O_RDONLY);
-	if (fdpagecount == -1) {
+	filepagecount = fopen(pathbuf, "r");
+	if (filepagecount == NULL) {
 		perror("Error occurred opening kpagecount");
 		cleanup_and_exit(EXIT_FAILURE);
 	}
 
 	lookup_maps_with_PID(opt->pids[0], opt,
-	                     fdpageflags, fdpagecount);
+	                     filepageflags, filepagecount);
 
 	if (opt->summary) {
 		options opt2 = *opt;
@@ -927,7 +918,7 @@ void inspect_processes(options *opt)
 		opt2.compactdetail = 0;
 		for (i = 1; i < opt->pidcount; i++) {
 			lookup_maps_with_PID(opt->pids[i], &opt2,
-			                     fdpageflags, fdpagecount);		
+			                     filepageflags, filepagecount);		
 		}
 
 
@@ -938,15 +929,15 @@ void inspect_processes(options *opt)
 	}
 	if (opt->detail || opt->compactdetail) {
 		errno = 0;
-		ret = close(fdpageflags);
-		if (ret == -1) {
+		ret = fclose(filepageflags);
+		if (ret == EOF) {
 			perror("Error closing kpageflags file");
 			errno = 0;
 		}
 	}
 	errno = 0;
-	ret = close(fdpagecount);
-	if (ret == -1) {
+	ret = fclose(filepagecount);
+	if (ret == EOF) {
 		perror("Error closing kpagecount file");
 		errno = 0;
 	}
