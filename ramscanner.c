@@ -1114,8 +1114,12 @@ main(int argc, char *argv[])
 		g_hash_table_destroy(opt.summarypages);
 	if (opt.detail || opt.compactdetail)
 		g_hash_table_destroy(opt.detailpages);
-	free(PIDs);
 
 	cleanup_and_exit(EXIT_SUCCESS);
-	exit(EXIT_SUCCESS);
+	/* free(PIDs); This function cannot be called because cleanup_and_exit() 
+	 *  must happen before that, and it exits. It cannot be called within
+	 *  cleanup_and_exit because free() isn't async-signal safe.
+	 */
+	exit(EXIT_SUCCESS); /* This should never happen, cleanup_and_exit exits.
+	                     */
 }
