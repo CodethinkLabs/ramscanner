@@ -813,7 +813,7 @@ void lookup_maps_with_PID(pid_t pid, options *opt,int fdpageflags,
 	sprintf(pathbuf, "%s/%u/%s", PROC_PATH, pid, PAGEMAP_FILENAME);
 	errno = 0;
 	fdpagemap = open(pathbuf, O_RDONLY);
-	if (fdpagemap == NULL) {
+	if (fdpagemap == -1) {
 		perror("Error opening pagemap file");
 		cleanup_and_exit(EXIT_FAILURE);
 	}
@@ -1117,4 +1117,5 @@ main(int argc, char *argv[])
 	free(PIDs);
 
 	cleanup_and_exit(EXIT_SUCCESS);
+	exit(EXIT_SUCCESS);
 }
