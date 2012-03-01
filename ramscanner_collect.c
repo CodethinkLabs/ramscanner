@@ -171,6 +171,7 @@ use_pfn(uint64_t pfn, options *opt, FILE *filepageflags, FILE *filepagecount,
 	uint64_t index = pfn * elementsize;
 
 	pagesummarydata *pData = NULL;
+	/* If summarypages doesn't exist, then opt->summary was never true. */
 	if (opt->summarypages) {
 		pData = g_hash_table_lookup(opt->summarypages, &pfn);
 
@@ -320,13 +321,14 @@ lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto,
 	size_t entrysize = sizeof(uint64_t);
 	size_t pagesize = getpagesize();
 	pagedetaildata *previousdpage = NULL;
-	pagedetaildata *currentdpage;
+	pagedetaildata *currentdpage = NULL;
 
 	if (opt->detail || opt->compactdetail) {
 		errno = 0;
 		currentdpage = calloc(1, sizeof(*currentdpage));
 		if (currentdpage == NULL) {
-			perror("Error occurred allocating memory for detail page");
+			perror("Error occurred allocating memory for detail"
+			       " page");
 			cleanup_and_exit(EXIT_FAILURE);
 		}
 	}
@@ -451,36 +453,44 @@ lookup_maps_with_PID(pid_t pid, options *opt, FILE *filepageflags,
 	}
 
 	while (fgets(buffer, BUFSIZ, filemaps) != NULL) {
-		vmastats *vmst = make_another_vmst_in_opt(opt);
-		uint16_t vmaindex = opt->vmacount - 1;
+		vmastats *vmst = NULL;
+		uint16_t vmaindex = 0;
 		uint32_t addrstart;
 		uint32_t addrend;
 
+		if (opt->detail || opt->compactdetail) {
+			vmst = make_another_vmst_in_opt(opt);
+			vmaindex = opt->vmacount - 1;
+		}
 		errno = 0;
-		ret = sscanf(buffer, "%x-%x %4s", &addrstart, &addrend,
+		if (vmst)
+			ret = sscanf(buffer, "%x-%x %4s", &addrstart, &addrend,
 		             vmst->permissions);
+		else
+			ret = sscanf(buffer, "%x-%x", &addrstart, &addrend);
 		if (ret == EOF && errno != 0) {
 			perror("Error parsing addresses from a line of maps"
 			       " file");
 			cleanup_and_exit(EXIT_FAILURE);
 		}
 
-		if (ret < 3){
+		if (ret < 2){
 			fprintf(stderr, "Error: Unexpected format of line in"
  					"maps.\n");
 			cleanup_and_exit(EXIT_FAILURE);
 		}
-
-		if ((pos = strchr(buffer, '/')) != NULL) {
-			char *newlinepos;
-			strcpy(vmst->path, pos);
-			newlinepos = strrchr(vmst->path, '\n');
-			*newlinepos = '\0';
-		} else if ((pos = strchr(buffer, '[')) != NULL) {
-			char *newlinepos;
-			strcpy(vmst->path, pos);
-			newlinepos = strrchr(vmst->path, '\n');
-			*newlinepos = '\0';
+		if (vmst) {
+			if ((pos = strchr(buffer, '/')) != NULL) {
+				char *newlinepos;
+				strcpy(vmst->path, pos);
+				newlinepos = strrchr(vmst->path, '\n');
+				*newlinepos = '\0';
+			} else if ((pos = strchr(buffer, '[')) != NULL) {
+				char *newlinepos;
+				strcpy(vmst->path, pos);
+				newlinepos = strrchr(vmst->path, '\n');
+				*newlinepos = '\0';
+			}
 		}
 
 		lookup_pagemap_with_addresses(addrstart, 
