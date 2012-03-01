@@ -6,6 +6,10 @@ Ramscanner tool - collects information about a process using:
 /proc/kpagecount
 /proc/kpageflags
 
+INSTALLATION:
+run "make" from within this directory.
+To build documentation, run "make doc" from within this directory.
+
 USAGE:
 ramscanner [PIDs] [flags]
 

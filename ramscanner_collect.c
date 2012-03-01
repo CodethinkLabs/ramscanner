@@ -171,7 +171,8 @@ use_pfn(uint64_t pfn, options *opt, FILE *filepageflags, FILE *filepagecount,
 	uint64_t index = pfn * elementsize;
 
 	pagesummarydata *pData = NULL;
-	pData = g_hash_table_lookup(opt->summarypages, &pfn);
+	if (opt->summary)
+		pData = g_hash_table_lookup(opt->summarypages, &pfn);
 
 	if (pData == NULL) {
 
@@ -185,7 +186,7 @@ use_pfn(uint64_t pfn, options *opt, FILE *filepageflags, FILE *filepagecount,
 	 * opt->summarypages.
 	 */
 
-		if (opt->summary || opt->detail || opt->compactdetail) {
+		if (opt->summary && (opt->detail || opt->compactdetail)) {
 			errno = 0;
 			pData = malloc(sizeof(*pData));
 			if (pData == NULL) {
@@ -256,7 +257,7 @@ parse_bitfield(uint64_t bitfield, options *opt, FILE *filepageflags,
 {
 	uint64_t pfnbits;
 
-	if (opt->detail) {
+	if (opt->detail || opt->compactdetail) {
 		uint64_t pageshift;
 
 		if (bitfield & PAGEPRESENT) 
@@ -269,15 +270,15 @@ parse_bitfield(uint64_t bitfield, options *opt, FILE *filepageflags,
 	}
 	if (bitfield & PAGESWAPPED) {
 		/* Omitting swap type and swap offset information. */
-		if (opt->detail)
+		if (opt->detail || opt->compactdetail)
 			currentdpage->swap = 1;
 		return;
 	}
-	if (opt->detail)
+	if (opt->detail || opt->compactdetail)
 		currentdpage->swap = 0;
 	pfnbits = bitfield & PFNBITS;
 
-	if (opt->detail)
+	if (opt->detail || opt->compactdetail)
 		currentdpage->pfn = pfnbits;
 
 	use_pfn(pfnbits, opt, filepageflags, filepagecount, currentdpage);
@@ -331,11 +332,14 @@ lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto,
 	size_t pagesize = getpagesize();
 	pagedetaildata *previousdpage = NULL;
 	pagedetaildata *currentdpage;
-	errno = 0;
-	currentdpage = calloc(1, sizeof(*currentdpage));
-	if (currentdpage == NULL) {
-		perror("Error occurred allocating memory for detail page");
-		cleanup_and_exit(EXIT_FAILURE);
+
+	if (opt->detail || opt->compactdetail) {
+		errno = 0;
+		currentdpage = calloc(1, sizeof(*currentdpage));
+		if (currentdpage == NULL) {
+			perror("Error occurred allocating memory for detail page");
+			cleanup_and_exit(EXIT_FAILURE);
+		}
 	}
 
 	uint32_t entryfrom = addressfrom / pagesize;
@@ -366,29 +370,31 @@ lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto,
 			perror("Error reading pagemap");
 			cleanup_and_exit(EXIT_FAILURE);
 		}
-
-		currentdpage->vmaindex = vmaindex;
-		currentdpage->addrstart = inum * pagesize;
-		currentdpage->addrend = (inum + 1) * pagesize;
-
+		if (opt->detail || opt->compactdetail) {
+			currentdpage->vmaindex = vmaindex;
+			currentdpage->addrstart = inum * pagesize;
+			currentdpage->addrend = (inum + 1) * pagesize;
+		}
 		parse_bitfield(bitfield, opt, 
 		               filepageflags, filepagecount, currentdpage);
 
-		if (are_pages_identical_and_adjacent(previousdpage,
-		                                     currentdpage)) {
-			previousdpage->addrend = currentdpage->addrend;
-			memset(currentdpage, 0, sizeof(*currentdpage));
-		} else {
-			g_hash_table_insert(opt->detailpages, 
-			                    newkey(currentdpage->addrstart), 
-			                    currentdpage);
-			previousdpage = currentdpage;
-			errno = 0;
-			currentdpage = calloc(1, sizeof(*currentdpage));
-			if (currentdpage == NULL) {
-				perror("Error occurred allocating memory for"
-				       " detail page");
-				cleanup_and_exit(EXIT_FAILURE);
+		if (opt->detail || opt->compactdetail) {
+			if (are_pages_identical_and_adjacent(previousdpage,
+			                                     currentdpage)) {
+				previousdpage->addrend = currentdpage->addrend;
+				memset(currentdpage, 0, sizeof(*currentdpage));
+			} else {
+				g_hash_table_insert(opt->detailpages, 
+				                newkey(currentdpage->addrstart), 
+				                currentdpage);
+				previousdpage = currentdpage;
+				errno = 0;
+				currentdpage = calloc(1, sizeof(*currentdpage));
+				if (currentdpage == NULL) {
+					perror("Error occurred allocating "
+					       "memory for detail page");
+					cleanup_and_exit(EXIT_FAILURE);
+				}
 			}
 		}
 	}
