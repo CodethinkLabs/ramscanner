@@ -101,6 +101,7 @@ countsss(void *key, void *value, void *data)
 	size_t pagesize = getpagesize();
 	pagesummarydata *page = value;
 	sizestats *stats = data;
+	if (page->memmapped < page->procmapped) fprintf(stderr, "Page has been mapped by process more times than by mm! memmapped: %d, procmapped: %d\n", page->memmapped, page->procmapped);
 	if (page->memmapped == page->procmapped)
 		stats->sss += pagesize/KBSIZE;
 }
@@ -270,8 +271,9 @@ parse_bitfield(uint64_t bitfield, options *opt, FILE *filepageflags,
 
 	if (opt->detail || opt->compactdetail)
 		currentdpage->pfn = pfnbits;
-
-	use_pfn(pfnbits, opt, filepageflags, filepagecount, currentdpage);
+	if (pfnbits != 0)
+		use_pfn(pfnbits, opt, filepageflags, filepagecount,
+		        currentdpage);
 }
 
 /**
