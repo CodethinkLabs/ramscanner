@@ -11,17 +11,28 @@ run "make" from within this directory.
 To build documentation, run "make doc" from within this directory.
 
 USAGE:
-ramscanner [PIDs] [flags]
+"Usage: ramscanner [Primary PID] [-s<path>] [-d<path>] [-D<path>] 
+                   [Secondary PIDs]
+		   '-s<path>' to write a summary to <path>
+		   '-D<path>' to write per-page details to <path>
+		   '-d<path>' to write compact details to <path>
 
 ARGUMENTS:
-The first PID specified is the primary process. It will be inspected in detail.
-The othe PIDs specified are the primary processes. They are only inspected to return GSS
-flag -s FILENAME specifies that ramscanner will return a summary to the file specified.
-flag -d FILENAME specifies that ramscanner will return a description to the file specified.
-If FILENAME is "stdout" it will be printed to standard output.
+The primary PID specified is the primary process. It will be inspected in
+ detail.
+The secondary PIDs specified are the secondary processes. They are only 
+ inspected to return GSS.
+flag -s<path> specifies that ramscanner will return a summary to the file
+ specified.
+flag -D<path> specifies that ramscanner will return a description to the file
+ specified.
+flag -d<path> specifies that ramscanner will return a description to the file
+ specified, where identical pages have been merged together, displaying the
+ number of pages merged together.
+If <path> is "-" or not specified, it will be printed to standard output.
 
 DESCRIPTION:
-Stops primary and secondary processes to interrogate them, and re-starts them on successful completion of the program, or on receiving a SIGINT or SIGTERM signal.
+Investigates the primary process on a page-by-page basis from its memory map.
 
 OUTPUT:
 If -s is specified, it will print a summary of format
@@ -37,10 +48,16 @@ If -s is specified, it will print a summary of format
 	Locked, 	        0 kB
 to the summary file.
 
-If -d is specified, it will print details of each page in the primary process in comma-separated format
-	permissions,path,present,size,swapped,times mapped,locked,referenced,dirty,anonymous,swapcache,swapbacked,KSM
-	r-xp,/lib/i386-linux-gnu/libm-2.13.so,present,4096 B,unswapped,48,,referenced,,,,,,
-to the summary file.
+If -D is specified, it will print details of each page in the primary process in
+ comma-separated format. For example:
+from,to,permissions,path,present,size B,swap,times mapped,locked,referenced,dirty,anonymous,swapcache,swapbacked,KSM
+b3340000,b3341000, r--s,/var/cache/fontconfig/d52a8644073d54c13679302ca1180695-le32d4.cache-3,present,4096,unswapped,14,,referenced,,,,,,
+
+If -d is specified, it will print details of groups of identical pages in the
+ primary process in comma-separated format. For example:
+from,to,permissions,path,present,size B,swap,times mapped,locked,referenced,dirty,anonymous,swapcache,swapbacked,KSM
+00557000,0056c000, r-xp,/usr/lib/libgtk-x11-2.0.so.0.2400.4,absent,1,unswapped,0,,,,,,,,21, identical pages
+
 
 TERMINOLOGY:
 PRIMARY PROCESS - The first process specified as an argument to this program by PID in the command line. Inspection of how much memory is being used is carried out on this process.
@@ -57,7 +74,7 @@ VIRTUAL MEMORY AREA (VMA) - describe separate objects the process needs access t
 Each VMA contains a range of memory addresses it can look up pages in, the permissions the memory is accessible by (Reading, Writing, Execution and Shared/Private) and the file it may refer to.
 It may contain a path to the file it refers to, or it may be anonymous.
 PAGE MAP - Each memory address the VMA contains points to an entry in the page map. This details whether a page exists, how large it is, whether it exists in RAM or on swap.
-If it exists in RAM, it contains Page Frame Number (PFN) which is used to refer to an array of all the pages held on the computer. If it is in swap, it contains some flags about the swap page, and a swap offset.
+If it exists in RAM (present), it contains Page Frame Number (PFN) which is used to refer to an array of all the pages held on the computer. If it is in swap, it contains some flags about the swap page, and a swap offset.
 For more details, see Linux/Documentation/vm/pagemap.txt
 Page Frame Number (PFN) - A numerical index into the pagefile. This program uses the PFN to access information about the page in /proc/kpageflags and /proc/kpagecount.
 KPAGEFLAGS - A proc file which prints information about the flags set on each page in 64-bit chunks.
