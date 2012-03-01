@@ -46,41 +46,42 @@
                      * magic numbers.
                      */
 
-void
+static void
 parse_smaps_file(FILE *file, sizestats *stats);
 
-void
+static void
 countgss(void *key, void *value, void *data);
 
-void
+static void
 countsss(void *key, void *value, void *data);
 
-void
+static void
 lookup_smaps(pid_t PID, sizestats *stats);
 
-void
+static void
 store_flags_in_page(uint64_t bitfield, pagedetaildata *currentdpage);
 
-void
+static void
 use_pfn(uint64_t pfn, options *opt, FILE *filepageflags, FILE *filepagecount, 
         pagedetaildata *currentdpage);
-void
+
+static void
 parse_bitfield(uint64_t bitfield, options *opt, FILE *filepageflags, 
                FILE *filepagecount, pagedetaildata *currentdpage);
 
-int
+static int
 are_pages_identical_and_adjacent(pagedetaildata *prev, pagedetaildata *curr);
 
-void
+static void
 lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto, 
                               options *opt, FILE *filepageflags,
                               FILE *filepagecount, FILE *filepagemap,
                               uint16_t vmaindex);
 
-vmastats *
+static vmastats *
 make_another_vmst_in_opt(options *opt);
 
-void
+static void
 lookup_maps_with_PID(pid_t pid, options *opt, FILE *filepageflags, 
                      FILE *filepagecount);
 

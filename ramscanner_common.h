@@ -170,13 +170,13 @@ destroyval(void *val);
 void 
 cleanup_and_exit(int signal);
 
-pid_t
+static pid_t
 try_to_read_PID(const char *arg);
 
-void 
+static void 
 add_pid_to_array(pid_t pid, pid_t **pids, uint16_t *pidcount);
 
-FILE*
+static FILE*
 open_arg(const char *arg);
 
 void 

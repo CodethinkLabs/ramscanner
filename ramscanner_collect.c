@@ -6,7 +6,7 @@
 #include "ramscanner_collect.h"
 
 
-void
+static void
 parse_smaps_file(FILE *file, sizestats *stats)
 {
 /*
@@ -56,7 +56,7 @@ parse_smaps_file(FILE *file, sizestats *stats)
 	}
 }
 
-void
+static void
 countgss(void *key, void *value, void *data)
 {
 	size_t pagesize = getpagesize();
@@ -66,7 +66,7 @@ countgss(void *key, void *value, void *data)
 		stats->gss += pagesize/KBSIZE;
 }
 
-void
+static void
 countsss(void *key, void *value, void *data)
 {
 	size_t pagesize = getpagesize();
@@ -76,7 +76,7 @@ countsss(void *key, void *value, void *data)
 		stats->sss += pagesize/KBSIZE;
 }
 
-void
+static void
 lookup_smaps(pid_t PID, sizestats *stats)
 {
 	char buffer[BUFSIZ];
@@ -101,7 +101,7 @@ lookup_smaps(pid_t PID, sizestats *stats)
 	
 }
 
-void
+static void
 store_flags_in_page(uint64_t bitfield, pagedetaildata *currentdpage)
 {
 	currentdpage->locked     = (bitfield & PAGEFLAG_LOCKED)     ? 1 : 0;
@@ -126,7 +126,7 @@ store_flags_in_page(uint64_t bitfield, pagedetaildata *currentdpage)
  * retrieve a 64-bit bitfield of the flags set on that process, and pass it to
  * the function print_flags
  */
-void
+static void
 use_pfn(uint64_t pfn, options *opt, FILE *filepageflags, FILE *filepagecount, 
         pagedetaildata *currentdpage)
 {
@@ -208,8 +208,9 @@ use_pfn(uint64_t pfn, options *opt, FILE *filepageflags, FILE *filepagecount,
 	store_flags_in_page(bitfield, currentdpage);
 }
 
-void parse_bitfield(uint64_t bitfield, options *opt, FILE *filepageflags, 
-                    FILE *filepagecount, pagedetaildata *currentdpage)
+static void
+parse_bitfield(uint64_t bitfield, options *opt, FILE *filepageflags, 
+               FILE *filepagecount, pagedetaildata *currentdpage)
 {
 /*
  * Prints the start of the detail line for each line, if requested to print 
@@ -250,7 +251,7 @@ void parse_bitfield(uint64_t bitfield, options *opt, FILE *filepageflags,
 	use_pfn(pfnbits, opt, filepageflags, filepagecount, currentdpage);
 }
 
-int
+static int
 are_pages_identical_and_adjacent(pagedetaildata *prev, pagedetaildata *curr)
 {
 	/* omit addresses and pfn from identity check. */
@@ -272,7 +273,7 @@ are_pages_identical_and_adjacent(pagedetaildata *prev, pagedetaildata *curr)
 	
 }
 
-void
+static void
 lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto, 
                               options *opt, FILE *filepageflags,
                               FILE *filepagecount, FILE *filepagemap,
@@ -353,7 +354,7 @@ lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto,
 	}
 }
 
-vmastats *
+static vmastats *
 make_another_vmst_in_opt(options *opt)
 {
 	vmastats *temp;
@@ -371,7 +372,7 @@ make_another_vmst_in_opt(options *opt)
 	return newelement;
 }
 
-void
+static void
 lookup_maps_with_PID(pid_t pid, options *opt, FILE *filepageflags, 
                      FILE *filepagecount)
 {

@@ -50,7 +50,7 @@ cleanup_and_exit(int signal)
  * forbidden, and checks if the PID specified corresponds to an existing 
  * process. 
  */
-pid_t
+static pid_t
 try_to_read_PID(const char *arg)
 {
 
@@ -73,7 +73,7 @@ try_to_read_PID(const char *arg)
 	}
 }
 
-void 
+static void 
 add_pid_to_array(pid_t pid, pid_t **pids, uint16_t *pidcount)
 {
 	pid_t *temp;
@@ -92,7 +92,7 @@ add_pid_to_array(pid_t pid, pid_t **pids, uint16_t *pidcount)
  * Open file with the name passed in the argument, and return the File* 
  * associated.
  */
-FILE*
+static FILE*
 open_arg(const char *arg)
 {
 	if (strcmp(arg, "-") == 0) {

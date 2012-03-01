@@ -21,7 +21,7 @@ write_summary(const sizestats *stats, FILE *summary)
 		
 }
 
-void
+static void
 print_detail_format(FILE *file)
 {
 	fprintf(file,            DETAIL_ADDRSTARTTITLE  DELIMITER
@@ -42,7 +42,7 @@ print_detail_format(FILE *file)
 	                         DETAIL_KSMTITLE        "\n"); 
 }
 
-void
+static void
 print_page_detail_data(pagedetaildata *page, FILE *file, vmastats *vmst)
 {
 
@@ -84,7 +84,7 @@ print_page_detail_data(pagedetaildata *page, FILE *file, vmastats *vmst)
 
 }
 
-void
+static void
 write_compact_detail_page(void *key, void *val, void *userdata)
 {
 	options *opt = userdata;
@@ -99,7 +99,7 @@ write_compact_detail_page(void *key, void *val, void *userdata)
 }
 
 
-void
+static void
 write_detail_page(void *key, void *val, void *userdata)
 {
 	options *opt = userdata;
