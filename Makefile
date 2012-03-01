@@ -9,7 +9,8 @@ ramscanner:$(OBJECTS)
 
 depend:
 	makedepend $(CFLAGS) $(SOURCES)
-
+doc:
+	doxygen Doxyfile
 
 clean:
 	rm -f ramscanner *.o

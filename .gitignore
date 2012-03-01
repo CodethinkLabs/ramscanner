@@ -4,3 +4,4 @@ ramscanner
 *.csv#
 *.o
 *.bak
+doc/
