@@ -3,6 +3,7 @@
 
 #include "ramscanner_common.h"
 
+
 void
 write_summary(const sizestats *stats, FILE *summary);
 

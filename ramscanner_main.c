@@ -1,29 +1,9 @@
-#define _LARGEFILE64_SOURCE
-
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
-#include <ctype.h>
-#include <errno.h>
-
-#include <linux/limits.h>
-#include <sys/types.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <signal.h>
-
 
 #include "ramscanner_common.h"
 #include "ramscanner_collect.h"
 #include "ramscanner_display.h"
-
-
-
-
-extern pid_t *PIDs; /* Global array of PIDs used, so that they can be restarted
-	             * if the program is told to terminate early */
-extern uint16_t PIDcount;
 
 
 /**

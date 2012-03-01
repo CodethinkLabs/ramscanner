@@ -2,3 +2,5 @@ ramscanner
 *.txt
 *.csv
 *.csv#
+*.o
+*.bak

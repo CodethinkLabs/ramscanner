@@ -7,8 +7,8 @@
 #include <glib.h>
 #include "ramscanner_literals.h"
 
-pid_t *PIDs = NULL;
-uint16_t PIDcount = 0;
+extern pid_t *PIDs;
+extern uint16_t PIDcount;
 /**
  * Sizestats holds information about the memory used by the process in
  * different ways.

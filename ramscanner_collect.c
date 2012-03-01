@@ -4,6 +4,7 @@
 
 #include "ramscanner_collect.h"
 
+
 void
 parse_smaps_file(FILE *file, sizestats *stats)
 {
@@ -513,7 +514,7 @@ inspect_processes(options *opt)
 
 		g_hash_table_foreach(opt->summarypages, countgss,
 		                     &(opt->summarystats));
-		lookup_smaps(pids[0], &(opt->summarystats));
+		lookup_smaps(opt->pids[0], &(opt->summarystats));
 
 	}
 	if (opt->detail || opt->compactdetail) {

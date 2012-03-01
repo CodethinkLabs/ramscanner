@@ -1,5 +1,6 @@
 #include "ramscanner_display.h"
 
+
 void
 write_summary(const sizestats *stats, FILE *summary)
 {

@@ -3,6 +3,11 @@
 #include <unistd.h>
 
 #include "ramscanner_common.h"
+
+
+pid_t *PIDs = NULL;
+uint16_t PIDcount = 0;
+
 /**
  * Allocates, sets with value "key" and returns a void pointer for the hash 
  * table. This function is used with a 54-bit integer, the PFN
