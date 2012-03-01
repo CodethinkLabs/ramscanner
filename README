@@ -50,53 +50,97 @@ to the summary file.
 
 If -D is specified, it will print details of each page in the primary process in
  comma-separated format. For example:
-from,to,permissions,path,present,size B,swap,times mapped,locked,referenced,dirty,anonymous,swapcache,swapbacked,KSM
-b3340000,b3341000, r--s,/var/cache/fontconfig/d52a8644073d54c13679302ca1180695-le32d4.cache-3,present,4096,unswapped,14,,referenced,,,,,,
+
+from,to,permissions,path,present,size B,swap,times mapped,locked,referenced,
+dirty,anonymous,swapcache,swapbacked,KSM
+
+b3340000,b3341000, r--s,
+/var/cache/fontconfig/d52a8644073d54c13679302ca1180695-le32d4.cache-3,present,
+4096,unswapped,14,,referenced,,,,,,
 
 If -d is specified, it will print details of groups of identical pages in the
  primary process in comma-separated format. For example:
-from,to,permissions,path,present,size B,swap,times mapped,locked,referenced,dirty,anonymous,swapcache,swapbacked,KSM
-00557000,0056c000, r-xp,/usr/lib/libgtk-x11-2.0.so.0.2400.4,absent,1,unswapped,0,,,,,,,,21, identical pages
+from,to,permissions,path,present,size B,swap,times mapped,locked,referenced,
+dirty,anonymous,swapcache,swapbacked,KSM
+00557000,0056c000, r-xp,/usr/lib/libgtk-x11-2.0.so.0.2400.4,absent,1,unswapped,
+0,,,,,,,,21, identical pages
 
 
 TERMINOLOGY:
-PRIMARY PROCESS - The first process specified as an argument to this program by PID in the command line. Inspection of how much memory is being used is carried out on this process.
-SECONDARY PROCESS - The processes specified after the first PID in command line. Secondary processes are stopped alongside the primary process while the program is running, and are used to calculate the Group Set Size (GSS)
+PRIMARY PROCESS - The first process specified as an argument to this program by
+ PID in the command line. Inspection of how much memory is being used is carried
+ out on this process.
+SECONDARY PROCESS - The processes specified after the first PID in command line.
+ Secondary processes are stopped alongside the primary process while the program
+ is running, and are used to calculate the Group Set Size (GSS).
 
 PAGE - The smallest unit of memory the memory manager works with, typically 4kB.
-SWAPPING - To avoid the computer locking up when it nears the limit of its physical memory, the memory manager can store pages of memory in a swap file or partition until it is needed.
-DIRTY PAGE - A page that has been modified.
-A page may contain information copied from a pre-existing file, needed for reference. When the memory manager unloads this page it can delete the data, knowing it can re-copy information from its source.
-However, if the page has been modified, then that modification must be tracked. The page is marked as dirty, and when the memory manager unloads the page it stores a copy of it in the swap file so that it can be retrieved.
-MEMORY MAP - Every process has its own memory map allowing it to refer to areas of memory.
-It contains a list of Virtual Memory Areas (VMAs).
-VIRTUAL MEMORY AREA (VMA) - describe separate objects the process needs access to.
-Each VMA contains a range of memory addresses it can look up pages in, the permissions the memory is accessible by (Reading, Writing, Execution and Shared/Private) and the file it may refer to.
-It may contain a path to the file it refers to, or it may be anonymous.
-PAGE MAP - Each memory address the VMA contains points to an entry in the page map. This details whether a page exists, how large it is, whether it exists in RAM or on swap.
-If it exists in RAM (present), it contains Page Frame Number (PFN) which is used to refer to an array of all the pages held on the computer. If it is in swap, it contains some flags about the swap page, and a swap offset.
+SWAPPING - To avoid the computer locking up when it nears the limit of its
+ physical memory, the memory manager can store pages of memory in a swap file or
+ partition until it is needed.
+DIRTY PAGE - A page that has been modified. A page may contain information
+ copied from a pre-existing file, needed for reference. When the memory manager
+ unloads this page it can delete the data, knowing it can re-copy information
+ from its source.
+However, if the page has been modified, then that modification must be tracked.
+ The page is marked as dirty, and when the memory manager unloads the page it
+ stores a copy of it in the swap file so that it can be retrieved.
+MEMORY MAP - Every process has its own memory map allowing it to refer to areas
+ of memory. It contains a list of Virtual Memory Areas (VMAs).
+VIRTUAL MEMORY AREA (VMA) - describe separate objects the process needs access
+ to.
+Each VMA contains a range of memory addresses it can look up pages in, the
+ permissions the memory is accessible by (Reading, Writing, Execution and
+ Shared/Private) and the file it may refer to. It may contain a path to the file
+ it refers to, or it may be anonymous.
+PAGE MAP - Each memory address the VMA contains points to an entry in the page
+ map. This details whether a page exists, how large it is, whether it exists in
+ RAM or on swap.
+If it exists in RAM (present), it contains Page Frame Number (PFN) which is used
+ to refer to an array of all the pages held on the computer. If it is in swap,
+ it contains some flags about the swap page, and a swap offset.
 For more details, see Linux/Documentation/vm/pagemap.txt
-Page Frame Number (PFN) - A numerical index into the pagefile. This program uses the PFN to access information about the page in /proc/kpageflags and /proc/kpagecount.
-KPAGEFLAGS - A proc file which prints information about the flags set on each page in 64-bit chunks.
-The flags reported by this program are Locked, Referenced, Dirty, Anonymous, Swapcache, Swapbacked and KSM.
+Page Frame Number (PFN) - A numerical index into the pagefile. This program uses
+ the PFN to access information about the page in /proc/kpageflags and
+ /proc/kpagecount.
+KPAGEFLAGS - A proc file which prints information about the flags set on each
+ page in 64-bit chunks.
+The flags reported by this program are Locked, Referenced, Dirty,
+ Anonymous, Swapcache, Swapbacked and KSM.
 As printed in linux/Documentation/vm/pagemap:
-	LOCKED - page is being locked for exclusive access, eg. by undergoing read/write IO
-	REFERENCED - page has been referenced since last LRU list enqueue/requeue
+	LOCKED - page is being locked for exclusive access, eg. by undergoing
+	         read/write IO
+	REFERENCED - page has been referenced since last LRU list
+	             enqueue/requeue
 	DIRTY - page has been written to, hence contains new data
 	ANON - a memory mapped page that is not part of a file
-	SWAPCACHE - page is mapped to swap space, ie. has an associated swap entry
+	SWAPCACHE - page is mapped to swap space, ie. has an associated swap
+	            entry
 	SWAPBACKED - page is backed by swap/RAM
-	KSM - identical memory pages dynamically shared between one or more processes
-KPAGECOUNT - A proc file which prints information about the number of times the page has been mapped.
+	KSM - identical memory pages dynamically shared between one or more
+	      processes
+KPAGECOUNT - A proc file which prints information about the number of times the
+ page has been mapped.
 
-VIRTUAL SET SIZE (VSS) - The amount of memory addressed by a process. This includes addresses that point to non-existent pages.
+VIRTUAL SET SIZE (VSS) - The amount of memory addressed by a process.
+ This includes addresses that point to non-existent pages.
 RESIDENT SET SIZE (RSS) - The amount of memory that points to pages in RAM.
-PROPORTIONAL SET SIZE (PSS) - An indicator of how much memory is shared by this process. A sum of every page mapped, divided by the total number of times it has been mapped.
-UNIQUE SET SIZE (USS) - The amount of memory mapped by the process that is only mapped once. It is a good indicator of how much memory would be freed if the process is killed.
-SELF SET SIZE (SSS) - The amount of memory mapped only by this process. Differs from USS if the same process accesses the page multiple times.
-GROUP SET SIZE (GSS) - The amount of memory mapped by the primary process which is not mapped by processes other than the Primary or Secondary processes. It is not an indicator of how much memory would be freed if the primary and secondary processes are stopped, but is a good indicator of how much memory the primary process shares with the secondary processes.
+PROPORTIONAL SET SIZE (PSS) - An indicator of how much memory is shared by this
+ process. A sum of every page mapped, divided by the total number of times it
+ has been mapped.
+UNIQUE SET SIZE (USS) - The amount of memory mapped by the process that is only
+ mapped once. It is a good indicator of how much memory would be freed if the
+ process is killed.
+SELF SET SIZE (SSS) - The amount of memory mapped only by this process. Differs
+ from USS if the same process accesses the page multiple times.
+GROUP SET SIZE (GSS) - The amount of memory mapped by the primary process which
+ is not mapped by processes other than the Primary or Secondary processes. It is
+ not an indicator of how much memory would be freed if the primary and secondary
+ processes are stopped, but is a good indicator of how much memory the primary
+ process shares with the secondary processes.
 REFERENCED - Amount of memory in pages referenced
 
 SEE ALSO:
 man proc - information about the maps and smaps proc files.
-Linux/Documentation/vm/pagemap.txt - information about pagemap, kpagecount and kpageflags proc files, including the meanings of each bit.
+Linux/Documentation/vm/pagemap.txt - information about pagemap, kpagecount and
+ kpageflags proc files, including the meanings of each bit.
