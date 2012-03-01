@@ -76,9 +76,9 @@ main(int argc, char *argv[])
 
 
 	free(opt.vmas);
-	if (opt.summary)
+	if (opt.summarypages)
 		g_hash_table_destroy(opt.summarypages);
-	if (opt.detail || opt.compactdetail)
+	if (opt.detailpages)
 		g_hash_table_destroy(opt.detailpages);
 
 	cleanup_and_exit(EXIT_SUCCESS);

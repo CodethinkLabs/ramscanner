@@ -173,7 +173,7 @@ handle_args(int argc, char *argv[], options *opt)
 void
 set_signals()
 {
-	struct sigaction sa;
+	struct sigaction sa = {0};
 		sa.sa_handler = cleanup_and_exit;
 	if (sigaction(SIGTERM, &sa, NULL) == -1) {
 		fprintf(stderr, "Error: Failed to set handler"

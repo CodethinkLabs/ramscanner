@@ -33,8 +33,7 @@
 static void
 parse_smaps_file(FILE *file, sizestats *stats)
 {
-	char buffer[BUFSIZ];
-	char *pt = buffer;
+	char *pt = NULL;
 	char *pos = NULL;
 	size_t n = 0;
 	uint32_t temp;
@@ -73,6 +72,8 @@ parse_smaps_file(FILE *file, sizestats *stats)
 			stats->locked += temp;
 		}
 	}
+	free(pt);
+	pt = NULL;
 }
 
 /**
