@@ -171,37 +171,27 @@ use_pfn(uint64_t pfn, options *opt, FILE *filepageflags, FILE *filepagecount,
 	uint64_t index = pfn * elementsize;
 
 	pagesummarydata *pData = NULL;
-	if (opt->summary)
+	if (opt->summarypages) {
 		pData = g_hash_table_lookup(opt->summarypages, &pfn);
 
-	if (pData == NULL) {
-
-	/*
-	 * If the page is found in the about g_hash_table_lookup(), then it will
-	 * always increment the number of times the page has been mapped by a
-	 * process. If no page is found, then it checks to see if opt->summary,
-	 * opt->detail or opt->compactdetail exist. If this is not the case,
-	 * then it is checking if it is being mapped by a secondary process. If
-	 * it is a secondary process, then no extra pages will be added to
-	 * opt->summarypages.
-	 */
-
-		if (opt->summary && (opt->detail || opt->compactdetail)) {
-			errno = 0;
-			pData = malloc(sizeof(*pData));
-			if (pData == NULL) {
-				perror("Error allocating page summary data");
-				cleanup_and_exit(EXIT_FAILURE);
+		if (pData == NULL) {
+			if (opt->summary) {
+				errno = 0;
+				pData = malloc(sizeof(*pData));
+				if (pData == NULL) {
+					perror("Error allocating page summary"
+					       " data");
+					cleanup_and_exit(EXIT_FAILURE);
+				}
+				pData->procmapped = 1;
+				pData->memmapped = 0; /*Indicates a new page*/
+				g_hash_table_insert(opt->summarypages, 
+				                    newkey(pfn), pData);
 			}
-			pData->procmapped = 1;
-			pData->memmapped = 0; /*Indicates a newly-mapped page*/
-			g_hash_table_insert(opt->summarypages, newkey(pfn), 
-			                    pData);
+		} else {
+			pData->procmapped += 1;
 		}
-	} else {
-		pData->procmapped += 1;
 	}
-
 	if (!(opt->summary || opt->detail || opt->compactdetail))
 		return;
 
@@ -226,23 +216,22 @@ use_pfn(uint64_t pfn, options *opt, FILE *filepageflags, FILE *filepagecount,
 			opt->summarystats.uss += getpagesize()/KBSIZE;
 	}
 
-	if (!(opt->detail || opt->compactdetail))
-		return;
-
-	currentdpage->timesmapped = bitfield;
-	errno = 0;
-	ret = fseek(filepageflags, index, SEEK_SET);
-	if (ret == -1) {
-		perror("Error seeking in kpageflags");
-		cleanup_and_exit(EXIT_FAILURE);
+	if (opt->detail || opt->compactdetail) {
+		currentdpage->timesmapped = bitfield;
+		errno = 0;
+		ret = fseek(filepageflags, index, SEEK_SET);
+		if (ret == -1) {
+			perror("Error seeking in kpageflags");
+			cleanup_and_exit(EXIT_FAILURE);
+		}
+		errno = 0;
+		ret = fread(&bitfield, sizeof(bitfield), 1, filepageflags);
+		if (ret != 1) {
+			perror("Error reading kpageflags");
+			cleanup_and_exit(EXIT_FAILURE);
+		}
+		store_flags_in_page(bitfield, currentdpage);
 	}
-	errno = 0;
-	ret = fread(&bitfield, sizeof(bitfield), 1, filepageflags);
-	if (ret != 1) {
-		perror("Error reading kpageflags");
-		cleanup_and_exit(EXIT_FAILURE);
-	}
-	store_flags_in_page(bitfield, currentdpage);
 }
 
 /**
