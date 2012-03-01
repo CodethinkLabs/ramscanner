@@ -9,6 +9,7 @@
 
 extern pid_t *PIDs;
 extern uint16_t PIDcount;
+
 /**
  * Sizestats holds information about the memory used by the process in
  * different ways.
@@ -48,7 +49,7 @@ typedef struct {
                           *   associated with a file.
                           */
 	uint32_t locked; /**< Locked: The sum of memory that has been locked 
-                          *   by a process
+                          *   by a process.
                           */
 } sizestats;
 
@@ -57,7 +58,7 @@ typedef struct {
  */
 typedef struct {
 	char permissions[5]; /**< A 4-character (plus null-terminator) string
-                              *   containing the permissions r, w, x and p/s
+                              *   containing the permissions r, w, x and p/s.
                               */
 	char path[PATH_MAX]; /**< A string containing the path to the file the
                               *   VMA is associated with, or [heap], [stack],
@@ -69,9 +70,15 @@ typedef struct {
  * All the information stored about how to run the program.
  */
 typedef struct {
-	uint8_t summary;           /**< Program will print a summary. */
-	uint8_t detail;            /**< Program will print full details. */
-	uint8_t compactdetail;     /**< Program will print compact details. */
+	uint8_t summary;           /**< The program has been instructed to print
+	                            *   a summary.
+	                            */
+	uint8_t detail;            /**< The program has been instructed to print
+	                            *   full details.
+	                            */
+	uint8_t compactdetail;     /**< The program has been instructed to print
+	                            *   compact details. 
+	                            */
 	FILE *summaryfile;         /**< The file to print summary to. */
 	FILE *detailfile;          /**< The file to print details to. */
 	FILE *compactdetailfile;   /**< The file to print compact details to. */
@@ -79,12 +86,12 @@ typedef struct {
 	                            *   element is the primary PID, all others
                                     *   are secondary PIDs.
                                     */
-	uint16_t pidcount;         /**< The number of PIDs */
-	GHashTable *summarypages;  /**< Hash table of all the pages used for
+	uint16_t pidcount;         /**< The number of PIDs. */
+	GHashTable *summarypages;  /**< A Hash Table of all the pages used for
 	                            *   summary. Stores a pagesummarydata and is
 	                            *   indexed by PFN.
 	                            */
-	GHashTable *detailpages;   /**< Hash table of all the pages used for
+	GHashTable *detailpages;   /**< A Hash Table of all the pages used for
 	                            *   detail. Stores a pagedetaildata and is
 	                            *   indexed by pagemap address.
 	                            */
@@ -99,23 +106,18 @@ typedef struct {
 	                           */
 } options;
 
-
-
 /**
- * Page data : Information stored about the individual page for summary
+ * Page data : Information stored about the individual page for summary.
  */
 typedef struct {
 	uint32_t memmapped;  /**< Internal store of how many times this page has
 			      *   been mapped by the memory manager (i.e. all
-                              *   processes)
+                              *   processes).
                               */
 	uint32_t procmapped; /**< Internal store of how many times this page has
-			      *   been mapped by the PIDs defined
+			      *   been mapped by the PIDs defined.
                               */
 } pagesummarydata;
-
-
-
 
 /**
  * All the information stored about a contiguous region of identical pages.
@@ -156,7 +158,7 @@ typedef struct {
 	uint8_t  swapcache;    /**< The page is mapped to swap space - it has an
 	                        *   associated swap entry.
 	                        */
-	uint8_t  swapbacked;   /**< The page is backed by swap/RAM */
+	uint8_t  swapbacked;   /**< The page is backed by swap/RAM. */
 	uint8_t  ksm;          /**< The page is part of Kernel SamePage Merging.
 	                        */
 } pagedetaildata;
@@ -187,6 +189,5 @@ set_signals();
 
 void
 stop_PIDs(const pid_t *pids, uint16_t count);
-
 
 #endif

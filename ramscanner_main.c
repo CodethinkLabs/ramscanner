@@ -5,13 +5,12 @@
 #include "ramscanner_collect.h"
 #include "ramscanner_display.h"
 
-
 /**
- * Sets up the signal handler
+ * Sets up the signal handler.
  * Calls functions to turn the arguments into PIDs, flags and filenames. 
- * stops the PIDs that are going to be inspected
- * calls the function to inspect the PIDs
- * writes a summary
+ * Stops the PIDs that are going to be inspected.
+ * Calls the function to inspect the PIDs.
+ * Writes in stdout or in the files specified by the arguments. 
  */
 int 
 main(int argc, char *argv[])
@@ -21,9 +20,11 @@ main(int argc, char *argv[])
 	set_signals();
 
 	if (argc < 2){
-		printf("Format is %s PID [flags + FILENAME] [other PIDs]\n"
-			"Accepted flags are:\n \t'-s FILENAME' to get summary\n"
-			"\t'-d FILENAME' to get per-page details\n", argv[0]); 
+		printf("Usage: %s [Primary PID] [-s<path>] [-d<path>] "
+		       "[-D<path>] [Secondary PIDs]\n"
+		       "\t'-s<path>' to write a summary to <path>\n"
+		       "\t'-D<path>' to get per-page details\n"
+		       "\t'-d<path>' to get compact details\n", argv[0]); 
 		exit(EXIT_FAILURE);
 	}
 
@@ -57,6 +58,8 @@ main(int argc, char *argv[])
 		write_summary(&(opt.summarystats), opt.summaryfile);
 	if (opt.detail || opt.compactdetail)
 		write_any_detail(&opt);
+	if (opt.compactdetailfile != NULL)
+		fclose(opt.compactdetailfile);
 	if (opt.detailfile != NULL)
 		fclose(opt.detailfile);
 	if (opt.summaryfile != NULL)

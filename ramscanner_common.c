@@ -5,13 +5,12 @@
 
 #include "ramscanner_common.h"
 
-
 pid_t *PIDs = NULL;
 uint16_t PIDcount = 0;
 
 /**
- * Allocates, sets with value "key" and returns a void pointer for the hash 
- * table. This function is used with a 54-bit integer, the PFN
+ * Boxes allocating dynamic memory and setting it to a value to a single
+ * function for easy insertion into a GHashTable.
  */
 void * 
 newkey(uint64_t key)
@@ -21,12 +20,16 @@ newkey(uint64_t key)
 	return temp;
 }
 
+/**
+ * A function to clear memory, passed to each GHashTable constructor so it knows
+ * how to destroy its data when the GHashTable's destructor is called. It is
+ * used for both key and value of the GHashTable.
+ */
 void
 destroyval(void *val)
 {
 	free(val);
 }
-
 
 /**
  * Signal handler for abnormal termination. Tries its best to restart its 
@@ -37,7 +40,7 @@ cleanup_and_exit(int signal)
 {
 	int i = 0;
 	for (i=0; i< PIDcount; i++)
-		kill(PIDs[i], SIGCONT); /* Clears the queue of STOP signals */
+		kill(PIDs[i], SIGCONT); /* Clears the queue of STOP signals. */
 	if (signal != EXIT_SUCCESS && signal != EXIT_FAILURE)
 		_exit(EXIT_FAILURE);
 	else
@@ -45,7 +48,7 @@ cleanup_and_exit(int signal)
 }
 
 /**
- * Tries to interpret a string as a number, and if it succeeds returns the PID
+ * Tries to interpret a string as a number, and if it succeeds returns the PID.
  * Handles the special case of specifying the PID 0 or PID 1, which are  
  * forbidden, and checks if the PID specified corresponds to an existing 
  * process. 
@@ -56,14 +59,14 @@ try_to_read_PID(const char *arg)
 
 	char *endpt = NULL;
 	pid_t temp = strtoul(arg, &endpt, 0);
-	if (endpt == arg) { /* Did not read a number*/
+	if (endpt == arg) { /* Did not read a number. */
 		return 0;
 	} else if (temp == 0) {
 		fprintf(stderr, "Error: cannot pass PID 0. "
 			"Ignoring argument\n");
 		return 0;
 	} else {
-		kill(temp, 0);
+		kill(temp, 0);/* Fails if no such process exists. */
 		if (errno){
 			errno = 0;
 			return 0;
@@ -73,6 +76,10 @@ try_to_read_PID(const char *arg)
 	}
 }
 
+/**
+ * Increases the size of the array referenced by pids, and inserts pid at the
+ * end of the array.
+ */
 static void 
 add_pid_to_array(pid_t pid, pid_t **pids, uint16_t *pidcount)
 {
@@ -89,8 +96,9 @@ add_pid_to_array(pid_t pid, pid_t **pids, uint16_t *pidcount)
 }
 
 /**
- * Open file with the name passed in the argument, and return the File* 
- * associated.
+ * Opens a file with the name passed in the argument, and returns the associated 
+ * FILE*. Has a special case for if "-" is the argument, in which case it does
+ * not need to open a file stream, and returns stdout instead.
  */
 static FILE*
 open_arg(const char *arg)
@@ -112,7 +120,7 @@ open_arg(const char *arg)
 /**
  * Parses the arguments given to the program. It ignores invalid arguments
  * instead of failing. FILE pointers and PID arrays are set in the functions
- * called, so are passed as pointers to pointers
+ * called, so are passed as pointers to pointers.
  */
 void 
 handle_args(int argc, char *argv[], options *opt)
@@ -159,33 +167,35 @@ handle_args(int argc, char *argv[], options *opt)
 	}
 }
 
+/**
+ * Sets the signal handlers for this process to cleanup_and_exit().
+ */
 void
 set_signals()
 {
-/*
- * Set handlers for signals sent, to ensure processes get re-started
- * on early terminate
- */
 	struct sigaction sa;
 		sa.sa_handler = cleanup_and_exit;
-	if (sigaction(SIGTERM, &sa, NULL) == -1){
+	if (sigaction(SIGTERM, &sa, NULL) == -1) {
 		fprintf(stderr, "Error: Failed to set handler"
 			" to SIGTERM.");
 		exit(EXIT_FAILURE);
 	}
-	if (sigaction(SIGINT, &sa, NULL) == -1){
+	if (sigaction(SIGINT, &sa, NULL) == -1) {
 		fprintf(stderr, "Error: Failed to set handler"
 			" to SIGINT.");
 		exit(EXIT_FAILURE);
 	}
-	if (sigaction(SIGSEGV, &sa, NULL) == -1){
+	if (sigaction(SIGSEGV, &sa, NULL) == -1) {
 		fprintf(stderr, "Error: Failed to set handler"
 			" to SIGSEGV.");
 		exit(EXIT_FAILURE);
 	}
-
 }
 
+/**
+ * Stops the processes specified in pids, so they can be inspected without
+ * giving inconsistent results.
+ */
 void
 stop_PIDs(const pid_t *pids, uint16_t count)
 {
@@ -194,7 +204,7 @@ stop_PIDs(const pid_t *pids, uint16_t count)
 		int ret;
 		errno = 0;
 		ret = kill(pids[i], SIGSTOP);/* SIGSTOP overrides signal
-		                              * handling, consider SIGSTP
+		                              * handling, consider SIGSTP.
 		                              */
 		if (ret == -1) {
 			perror("Error stopping PID");

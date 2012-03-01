@@ -3,7 +3,9 @@
 
 #include "ramscanner_display.h"
 
-
+/**
+ * Write the summary data into the file specified as "summary".
+ */
 void
 write_summary(const sizestats *stats, FILE *summary)
 {
@@ -21,6 +23,10 @@ write_summary(const sizestats *stats, FILE *summary)
 		
 }
 
+/**
+ * Write the head of the details in a detail file. Valid for compact detail 
+ * and detail.
+ */
 static void
 print_detail_format(FILE *file)
 {
@@ -31,7 +37,6 @@ print_detail_format(FILE *file)
 	                         DETAIL_PRESENTTITLE    DELIMITER 
 	                         DETAIL_SIZETITLE       DELIMITER 
 	                         DETAIL_SWAPTITLE       DELIMITER 
-	                      /* DETAIL_PFNTITLE        DELIMITER PFN OMITTED */
 	                         DETAIL_MAPPEDTITLE     DELIMITER 
 	                         DETAIL_LOCKEDTITLE     DELIMITER
 	                         DETAIL_REFDTITLE       DELIMITER
@@ -42,6 +47,10 @@ print_detail_format(FILE *file)
 	                         DETAIL_KSMTITLE        "\n"); 
 }
 
+/**
+ * Write the details data taken from the pagedetaildata struct into the file
+ * provided, taking some additional information from the vmastats.
+ */
 static void
 print_page_detail_data(pagedetaildata *page, FILE *file, vmastats *vmst)
 {
@@ -56,9 +65,6 @@ print_page_detail_data(pagedetaildata *page, FILE *file, vmastats *vmst)
 	fprintf(file, "%s" DELIMITER, (page->swap ? 
 	                               DETAIL_YESSWAP : 
 	                               DETAIL_NOSWAP ));
-	/* PFN OMITTED
-	 * fprintf(file, "%llx"DELIMITER, (page->pfn ? page->pfn : ""));
-	 */
 	fprintf(file, "%d"DELIMITER, page->timesmapped);
 	fprintf(file, "%s"DELIMITER, (page->locked ? 
 	                              DETAIL_YESLOCKED : 
@@ -84,6 +90,11 @@ print_page_detail_data(pagedetaildata *page, FILE *file, vmastats *vmst)
 
 }
 
+/**
+ * Function passed into a g_hash_table_foreach(). Takes the details from the 
+ * page and prints the information with the help of the print_page_detail_data()
+ * function.
+ */
 static void
 write_compact_detail_page(void *key, void *val, void *userdata)
 {
@@ -98,7 +109,10 @@ write_compact_detail_page(void *key, void *val, void *userdata)
 	        pagecount);
 }
 
-
+/**
+ * Like write_compact_detail_page(), retrieves information from the page.
+ * This function expands the information into one line per page mapped.
+ */
 static void
 write_detail_page(void *key, void *val, void *userdata)
 {
@@ -116,6 +130,11 @@ write_detail_page(void *key, void *val, void *userdata)
 	}
 }
 
+/**
+ * This function is called if either opt->compactdetail or opt->detail are set
+ * to true in opt. It prints the information stored within the GHashTable
+ * detailpages to the files specified by opt.
+ */
 void
 write_any_detail(options *opt)
 {

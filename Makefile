@@ -8,7 +8,7 @@ ramscanner:$(OBJECTS)
 	$(CC) $(OBJECTS) -o ramscanner $(LIBS) -Wall
 
 depend:
-	makedepend $(CFLAGS) $(SOURCES) 
+	makedepend $(CFLAGS) $(SOURCES)
 
 
 clean:
@@ -122,6 +122,7 @@ ramscanner_common.o: /usr/include/sys/select.h /usr/include/bits/select.h
 ramscanner_common.o: /usr/include/bits/sigset.h /usr/include/bits/time.h
 ramscanner_common.o: /usr/include/sys/sysmacros.h
 ramscanner_common.o: /usr/include/bits/pthreadtypes.h /usr/include/alloca.h
+ramscanner_common.o: /usr/include/string.h /usr/include/xlocale.h
 ramscanner_common.o: /usr/include/unistd.h /usr/include/bits/posix_opt.h
 ramscanner_common.o: /usr/include/bits/environments.h
 ramscanner_common.o: /usr/include/bits/confname.h /usr/include/getopt.h
@@ -221,6 +222,9 @@ ramscanner_collect.o: /usr/include/sys/select.h /usr/include/bits/select.h
 ramscanner_collect.o: /usr/include/bits/sigset.h /usr/include/bits/time.h
 ramscanner_collect.o: /usr/include/sys/sysmacros.h
 ramscanner_collect.o: /usr/include/bits/pthreadtypes.h /usr/include/alloca.h
+ramscanner_collect.o: /usr/include/unistd.h /usr/include/bits/posix_opt.h
+ramscanner_collect.o: /usr/include/bits/environments.h
+ramscanner_collect.o: /usr/include/bits/confname.h /usr/include/getopt.h
 ramscanner_collect.o: ramscanner_collect.h ramscanner_common.h
 ramscanner_collect.o: /usr/include/stdint.h /usr/include/bits/wchar.h
 ramscanner_collect.o: /usr/include/stdio.h /usr/include/libio.h
@@ -304,16 +308,19 @@ ramscanner_collect.o: /usr/include/glib-2.0/glib/gurifuncs.h
 ramscanner_collect.o: /usr/include/glib-2.0/glib/gvarianttype.h
 ramscanner_collect.o: /usr/include/glib-2.0/glib/gvariant.h
 ramscanner_collect.o: ramscanner_literals.h
-ramscanner_display.o: ramscanner_display.h ramscanner_common.h
-ramscanner_display.o: /usr/include/stdint.h /usr/include/features.h
+ramscanner_display.o: /usr/include/stdio.h /usr/include/features.h
 ramscanner_display.o: /usr/include/bits/predefs.h /usr/include/sys/cdefs.h
 ramscanner_display.o: /usr/include/bits/wordsize.h /usr/include/gnu/stubs.h
-ramscanner_display.o: /usr/include/gnu/stubs-32.h /usr/include/bits/wchar.h
-ramscanner_display.o: /usr/include/stdio.h /usr/include/bits/types.h
+ramscanner_display.o: /usr/include/gnu/stubs-32.h /usr/include/bits/types.h
 ramscanner_display.o: /usr/include/bits/typesizes.h /usr/include/libio.h
 ramscanner_display.o: /usr/include/_G_config.h /usr/include/wchar.h
 ramscanner_display.o: /usr/include/bits/stdio_lim.h
-ramscanner_display.o: /usr/include/bits/sys_errlist.h
+ramscanner_display.o: /usr/include/bits/sys_errlist.h /usr/include/unistd.h
+ramscanner_display.o: /usr/include/bits/posix_opt.h
+ramscanner_display.o: /usr/include/bits/environments.h
+ramscanner_display.o: /usr/include/bits/confname.h /usr/include/getopt.h
+ramscanner_display.o: ramscanner_display.h ramscanner_common.h
+ramscanner_display.o: /usr/include/stdint.h /usr/include/bits/wchar.h
 ramscanner_display.o: /usr/include/glib-2.0/glib.h
 ramscanner_display.o: /usr/include/glib-2.0/glib/galloca.h
 ramscanner_display.o: /usr/include/glib-2.0/glib/gtypes.h

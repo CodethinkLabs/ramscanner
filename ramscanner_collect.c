@@ -5,15 +5,34 @@
 
 #include "ramscanner_collect.h"
 
-
+/**
+ * Extracts data from the process' smaps file (see "man proc" for details on 
+ * smaps) and stores it in the sizestats struct. It is dependent on the format
+ * of the output of smaps remaining as: [Address]-[Address] for the first line
+ * of an entry, and Label:  [size] kB for each size stat. 
+ * 
+ * For example:
+ * b77f3000-b77f4000 r--p 002a1000 08:01 15343049 /usr/lib/locale/locale-archive
+ * Size:                  4 kB
+ * Rss:                   4 kB
+ * Pss:                   0 kB
+ * Shared_Clean:          4 kB
+ * Shared_Dirty:          0 kB
+ * Private_Clean:         0 kB
+ * Private_Dirty:         0 kB
+ * Referenced:            4 kB
+ * Anonymous:             0 kB
+ * Swap:                  0 kB
+ * KernelPageSize:        4 kB
+ * MMUPageSize:           4 kB
+ * Locked:                0 kB
+ *
+ * It will extract Size, Rss, Pss, Referenced, Anonymous, Swap and Locked for
+ * each entry.
+ */
 static void
 parse_smaps_file(FILE *file, sizestats *stats)
 {
-/*
- * Extracts numerical data from the smaps file. Depends on the format staying as
- * Type:   [val] kB
- * Warning! May get confused by paths which contain text of format Type:[val] kB
- */
 	char buffer[BUFSIZ];
 	char *pt = buffer;
 	char *pos = NULL;
@@ -56,6 +75,11 @@ parse_smaps_file(FILE *file, sizestats *stats)
 	}
 }
 
+/**
+ * A function called in a g_hash_table_foreach(). If the page is mapped only by
+ * the primary and secondary processes, it increments the Group Set Size by the
+ * size of the page in kB.
+ */
 static void
 countgss(void *key, void *value, void *data)
 {
@@ -66,6 +90,11 @@ countgss(void *key, void *value, void *data)
 		stats->gss += pagesize/KBSIZE;
 }
 
+/**
+ * A function called in a g_hash_table_foreach(). If the page is mapped only by
+ * the primary process, it increments the Self Set Size by the size of the page
+ * in kB.
+ */
 static void
 countsss(void *key, void *value, void *data)
 {
@@ -76,6 +105,10 @@ countsss(void *key, void *value, void *data)
 		stats->sss += pagesize/KBSIZE;
 }
 
+/**
+ * A function to open the /proc/PID/smaps file, then call parse_smaps_file() to
+ * read the smaps file and store the results.
+ */
 static void
 lookup_smaps(pid_t PID, sizestats *stats)
 {
@@ -94,13 +127,14 @@ lookup_smaps(pid_t PID, sizestats *stats)
 	ret = fclose(file);
 	if (ret != 0) {
 		perror("Error closing smaps file");
-		errno = 0; /* Continue as usual. It's not worthwhile crashing
-		            * because a file failed to close properly.
-		            */
+		errno = 0;
 	}
-	
 }
 
+/**
+ * A function to inspect the page flags extracted and store the results in the
+ * page detail data struct.
+ */
 static void
 store_flags_in_page(uint64_t bitfield, pagedetaildata *currentdpage)
 {
@@ -120,17 +154,16 @@ store_flags_in_page(uint64_t bitfield, pagedetaildata *currentdpage)
  * reports it has been mapped to the number of times the primary or secondary
  * processes map it.
  * Looks up the number of times the page reports it has been mapped in 
- * /proc/kpagecount then compares it to the number of times it has been mapped
- * by primary or secondary processes.
- * If the flag for details has been set, it will look up /proc/kpageflags and
- * retrieve a 64-bit bitfield of the flags set on that process, and pass it to
- * the function print_flags
+ * /proc/kpagecount. If it has only been mapped once then the page's size will
+ * be added to the Unique Set Size (Uss).
+ * If the program has been told to look for details, it will look up 
+ * /proc/kpageflags and retrieve a 64-bit bitfield of the flags set on that 
+ * process, and pass it to the function store_flags_in_page().
  */
 static void
 use_pfn(uint64_t pfn, options *opt, FILE *filepageflags, FILE *filepagecount, 
         pagedetaildata *currentdpage)
 {
-
 	int ret;
 	uint64_t bitfield;
 
@@ -143,11 +176,13 @@ use_pfn(uint64_t pfn, options *opt, FILE *filepageflags, FILE *filepagecount,
 	if (pData == NULL) {
 
 	/*
-	 * flags containing neither is a special case, as it is impossible to 
-	 * reach this function if the arguments contain neither detail or 
-	 * summary. It means that the process being interrogated is not the 
-	 * primary process, so it is used to calculate Gss by checking if the 
-	 * secondary process maps a PFN that the  primary process already has.
+	 * If the page is found in the about g_hash_table_lookup(), then it will
+	 * always increment the number of times the page has been mapped by a
+	 * process. If no page is found, then it checks to see if opt->summary,
+	 * opt->detail or opt->compactdetail exist. If this is not the case,
+	 * then it is checking if it is being mapped by a secondary process. If
+	 * it is a secondary process, then no extra pages will be added to
+	 * opt->summarypages.
 	 */
 
 		if (opt->summary || opt->detail || opt->compactdetail) {
@@ -159,7 +194,8 @@ use_pfn(uint64_t pfn, options *opt, FILE *filepageflags, FILE *filepagecount,
 			}
 			pData->procmapped = 1;
 			pData->memmapped = 0; /*Indicates a newly-mapped page*/
-			g_hash_table_insert(opt->summarypages, newkey(pfn), pData);
+			g_hash_table_insert(opt->summarypages, newkey(pfn), 
+			                    pData);
 		}
 	} else {
 		pData->procmapped += 1;
@@ -208,20 +244,16 @@ use_pfn(uint64_t pfn, options *opt, FILE *filepageflags, FILE *filepagecount,
 	store_flags_in_page(bitfield, currentdpage);
 }
 
+/**
+ * Is passed the 64-bit bitfield retrieved from the process' pagemap, and parses
+ * this information. If the process is not swapped then it has a PFN, which it
+ * will pass to the function use_pfn() to extract information from 
+ * /proc/kpagemaps and /proc/kpagecount.
+ */
 static void
 parse_bitfield(uint64_t bitfield, options *opt, FILE *filepageflags, 
                FILE *filepagecount, pagedetaildata *currentdpage)
 {
-/*
- * Prints the start of the detail line for each line, if requested to print 
- * details of the process. This is done because it is the first function that 
- * exists on a per-page context.
- * If the page is present, it continues to find out more about the page.
- * If the page is not swapped, the bitfield contains a PFN which can be used to
- * look up more details in /proc/kpagemaps and /proc/kpagecount, which is
- * performed in the function use_pfn
- */
-
 	uint64_t pfnbits;
 
 	if (opt->detail) {
@@ -236,7 +268,7 @@ parse_bitfield(uint64_t bitfield, options *opt, FILE *filepageflags,
 		currentdpage->pageshift = pageshift;
 	}
 	if (bitfield & PAGESWAPPED) {
-		/*Omitting swap type and swap offset information*/
+		/* Omitting swap type and swap offset information. */
 		if (opt->detail)
 			currentdpage->swap = 1;
 		return;
@@ -251,10 +283,17 @@ parse_bitfield(uint64_t bitfield, options *opt, FILE *filepageflags,
 	use_pfn(pfnbits, opt, filepageflags, filepagecount, currentdpage);
 }
 
+/**
+ * Checks whether two page detail data structs are identical enough to merge 
+ * together.
+ * Checks whether the two page detail data structs are adjacent, assuming that
+ * prev is always before curr.
+ * It ignores the PFN from identity checks because checking PFN would check if
+ * it is the same page, rather than one with the exact same flags.
+ */
 static int
 are_pages_identical_and_adjacent(pagedetaildata *prev, pagedetaildata *curr)
 {
-	/* omit addresses and pfn from identity check. */
 	if (prev == NULL)                           return 0;
 	if (prev->addrend     != curr->addrstart)   return 0;
 	if (prev->vmaindex    != curr->vmaindex)    return 0;
@@ -273,18 +312,21 @@ are_pages_identical_and_adjacent(pagedetaildata *prev, pagedetaildata *curr)
 	
 }
 
+/**
+ * Looks up every entry in /proc/PID/pagemap over the range addressfrom to 
+ * addressto, creating a pagedetaildata struct and filling it by using
+ * parse_bitfield(). If that page is both identical and adjacent to the previous
+ * page made, then it merges the two pages together by changing the address of
+ * the end of the previous page to the end address of the new page, then
+ * discarding the new page. If they are not adjacent and identical, it stores
+ * the new page in the GHashTable opt->detailpages.
+ */
 static void
 lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto, 
                               options *opt, FILE *filepageflags,
                               FILE *filepagecount, FILE *filepagemap,
                               uint16_t vmaindex)
 {
-/*
- * Looks up every entry over the index range in pagemap and reads the 64-bit
- * bitfield into a uint64_t.
- * Calls parse_bitfield to interpret the meanings of each bit
- */
-
 	size_t entrysize = sizeof(uint64_t);
 	size_t pagesize = getpagesize();
 	pagedetaildata *previousdpage = NULL;
@@ -332,8 +374,6 @@ lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto,
 		parse_bitfield(bitfield, opt, 
 		               filepageflags, filepagecount, currentdpage);
 
-		/* Compare currentdpage with previousdpage and decide whether to
-                 * add it to the hashtable. */
 		if (are_pages_identical_and_adjacent(previousdpage,
 		                                     currentdpage)) {
 			previousdpage->addrend = currentdpage->addrend;
@@ -354,6 +394,14 @@ lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto,
 	}
 }
 
+/**
+ * opt stores an array of vmastats structs so that they persist, can be access,
+ * and cleaned up at the end of the program. This makes another vmastats
+ * available and returns a pointer to it. The vmastats pointer will not persist,
+ * as realloc does not guarantee memory stays in the same place, so persistent
+ * access to this struct requires storing an index, which is most easily
+ * accessed for the newest vmastats struct by getting (opt->vmacount - 1).
+ */
 static vmastats *
 make_another_vmst_in_opt(options *opt)
 {
@@ -372,19 +420,18 @@ make_another_vmst_in_opt(options *opt)
 	return newelement;
 }
 
+/**
+ * Uses the PID to access the appropriate /proc/PID/maps file, which contains
+ * permissions and path information about each Virtual Memory Area (VMA), 
+ * and the region that memory addresses exist for. Assumes constant-sized pages
+ * to pass the range of indexes to be accessed in /proc/PID/pagemap.
+ * Calls the function lookup_pagemap_with_addresses() with the range of indexes
+ * to interrogate each listing in pagemap
+ */
 static void
 lookup_maps_with_PID(pid_t pid, options *opt, FILE *filepageflags, 
                      FILE *filepagecount)
 {
-/*
- * Uses the PID to access the appropriate /proc/PID/maps file, which contains
- * Permissions and path information about each Virtual Memory Area (VMA), 
- * and the region that memory addresses exist for. Assumes constant-sized pages
- * to pass the range of indexes to be accessed in /proc/PID/pagemap.
- * Calls the function lookup_pagemap_with_addresses with the range of indexes
- * to interrogate each listing in pagemap
- */
-
 	char pathbuf[PATH_MAX];
 	char buffer[BUFSIZ]; /* Buffer for storing lines read from file*/
 	FILE *filemaps;
@@ -461,18 +508,16 @@ lookup_maps_with_PID(pid_t pid, options *opt, FILE *filepageflags,
 	}
 }
 
+/**
+ * Calculates all the information for ramscanner, storing it in the GHashTables
+ * opt->summarypages and opt->detailpages, the vmastats array opt->vmas, and the
+ * sizestats struct opt->summarystats, using opt->summary, opt->detail and
+ * opt->compactdetail to identify how much work it needs to do.
+ */
 void
 inspect_processes(options *opt)
 {
-/* 
- * Function to do most of the hard work. flags tell it what to do, and pids
- * tells it which processes to use. The first PID (primary PID) is inspected
- * in detail, finding out information about each page. The other PIDs (secondary
- * PIDs) are used to calculate Gss
- */
-
 	char pathbuf[PATH_MAX]; /* Buffer for storing path to open files*/
-
 	FILE *filepageflags;/* file descriptor for /proc/kpageflags */
 	FILE *filepagecount;/* ditto for /proc/kpagecount */
 	int i;
@@ -513,7 +558,6 @@ inspect_processes(options *opt)
 			                     filepagecount);		
 		}
 
-
 		g_hash_table_foreach(opt->summarypages, countgss,
 		                     &(opt->summarystats));
 		lookup_smaps(opt->pids[0], &(opt->summarystats));
@@ -533,6 +577,5 @@ inspect_processes(options *opt)
 		perror("Error closing kpagecount file");
 		errno = 0;
 	}
-	
 }
 
