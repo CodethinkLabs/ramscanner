@@ -20,8 +20,8 @@ main(int argc, char *argv[])
 	set_signals();
 
 	if (argc < 2){
-		printf("Usage: %s [Primary PID] [-s<path>] [-d<path>] "
-		       "[-D<path>] [Secondary PIDs]\n"
+		printf("Usage: %s [Primary PID] [-s<path>] [-d<path>]\n"
+		       "        [-D<path>] [Secondary PIDs]\n"
 		       "\t'-s<path>' to write a summary to <path>\n"
 		       "\t'-D<path>' to get per-page details\n"
 		       "\t'-d<path>' to get compact details\n", argv[0]); 
@@ -31,7 +31,7 @@ main(int argc, char *argv[])
 	handle_args(argc, argv, &opt);
 	if (opt.pidcount == 0) {
 		printf("Usage: %s [Primary PID] [-s<path>] [-d<path>]\n "
-		       "          [-D<path>] [Secondary PIDs]\n"
+		       "        [-D<path>] [Secondary PIDs]\n"
 		       "\t'-s<path>' to write a summary to <path>\n"
 		       "\t'-D<path>' to get per-page details\n"
 		       "\t'-d<path>' to get compact details\n", argv[0]); 
@@ -83,8 +83,8 @@ main(int argc, char *argv[])
 
 	cleanup_and_exit(EXIT_SUCCESS);
 	/* free(PIDs); This function cannot be called because cleanup_and_exit() 
-	 *  must happen before that, and it exits. It cannot be called within
-	 *  cleanup_and_exit because free() isn't async-signal safe.
+	 * must happen before that, and it exits. It cannot be called within
+	 * cleanup_and_exit because free() isn't async-signal safe.
 	 */
 	exit(EXIT_SUCCESS); /* This should never happen, cleanup_and_exit exits.
 	                     */

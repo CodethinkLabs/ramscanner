@@ -70,13 +70,13 @@ typedef struct {
  * All the information stored about how to run the program.
  */
 typedef struct {
-	uint8_t summary;           /**< The program has been instructed to print
+	uint8_t summary : 1;       /**< The program has been instructed to print
 	                            *   a summary.
 	                            */
-	uint8_t detail;            /**< The program has been instructed to print
+	uint8_t detail : 1;        /**< The program has been instructed to print
 	                            *   full details.
 	                            */
-	uint8_t compactdetail;     /**< The program has been instructed to print
+	uint8_t compactdetail : 1; /**< The program has been instructed to print
 	                            *   compact details. 
 	                            */
 	FILE *summaryfile;         /**< The file to print summary to. */
@@ -132,34 +132,33 @@ typedef struct {
 	uint16_t vmaindex;     /**< Index into options.vmas to find the 
 	                        *   associated vmastats.
 	                        */
-	uint8_t  present;      /**< If the page is the page marked as present by
+	uint8_t  present : 1;  /**< If the page is the page marked as present by
 	                        *   pagemap.
 	                        */
-	uint8_t pageshift;     /**< The bits to construct the page size by
+	uint8_t pageshift : 6; /**< The bits to construct the page size by
 	                        *   1 << pageshift, as reported by pagemap.
 	                        */
-	uint8_t  swap;         /**< If the page is the page marked as swapped by
-	                        *   pagemap.
+	uint8_t  swap : 1;     /**< If the page is marked as swapped by pagemap.
 	                        */
-	uint64_t pfn;          /**< The Page Frame Number used to look up in
+	uint64_t pfn : 55;     /**< The Page Frame Number used to look up in
 	                        *   kpagemap and kpagecount, if it exists.
 	                        */
 	uint32_t timesmapped;  /**< The number of times the page has been mapped
 	                        *   by processes.
 	                        */
-	uint8_t  locked;       /**< The page has been locked by a process. */
-	uint8_t  referenced;   /**< The page has been recently accessed by a
-	                        *   process.
-	                        */
-	uint8_t  dirty;        /**< The page is dirty - it has been modified by
+	uint8_t  locked : 1;   /**< The page has been locked by a process. */
+	uint8_t  referenced : 1; /**< The page has been recently accessed by a
+	                          *   process.
+	                          */
+	uint8_t  dirty : 1;    /**< The page is dirty - it has been modified by
 	                        *   a process.
 	                        */
-	uint8_t  anonymous;    /**< The page is not associated with a file */
-	uint8_t  swapcache;    /**< The page is mapped to swap space - it has an
+	uint8_t  anonymous : 1;/**< The page is not associated with a file */
+	uint8_t  swapcache : 1;/**< The page is mapped to swap space - it has an
 	                        *   associated swap entry.
 	                        */
-	uint8_t  swapbacked;   /**< The page is backed by swap/RAM. */
-	uint8_t  ksm;          /**< The page is part of Kernel SamePage Merging.
+	uint8_t  swapbacked : 1; /**< The page is backed by swap/RAM. */
+	uint8_t  ksm : 1;      /**< The page is part of Kernel SamePage Merging.
 	                        */
 } pagedetaildata;
 
