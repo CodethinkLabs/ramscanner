@@ -56,7 +56,7 @@ print_page_detail_data(pagedetaildata *page, FILE *file, vmastats *vmst)
 {
 
 
-	fprintf(file, "%5s"DELIMITER,  vmst->permissions);
+	fprintf(file, "%4s"DELIMITER,  vmst->permissions);
 	fprintf(file, "%s" DELIMITER,  vmst->path);
 	fprintf(file, "%s" DELIMITER, (page->present ? 
 	                               DETAIL_YESPRESENT : 
@@ -123,8 +123,8 @@ write_detail_page(void *key, void *val, void *userdata)
 	size_t size = getpagesize();
 
 	for (i = page->addrstart; i < page->addrend; i += size) {
-		fprintf(opt->detailfile, "%x" DELIMITER, i);
-		fprintf(opt->detailfile, "%x" DELIMITER, (i + size));
+		fprintf(opt->detailfile, "%zx" DELIMITER, i);
+		fprintf(opt->detailfile, "%zx" DELIMITER, (i + size));
 		print_page_detail_data(page, opt->detailfile, currentvmst);
 		fprintf(opt->detailfile, "\n");
 	}

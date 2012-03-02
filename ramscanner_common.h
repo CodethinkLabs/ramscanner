@@ -1,5 +1,5 @@
-#ifndef _RAMSCANNER_COMMON_H_
-#define _RAMSCANNER_COMMON_H_
+#ifndef RAMSCANNER_COMMON_H
+#define RAMSCANNER_COMMON_H
 
 #include <stdint.h>
 #include <stdio.h>

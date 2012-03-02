@@ -1,5 +1,5 @@
-#ifndef _RAMSCANNER_LITERALS_H_
-#define _RAMSCANNER_LITERALS_H_
+#ifndef RAMSCANNER_LITERALS_H
+#define RAMSCANNER_LITERALS_H
 /**
  * Macros used in parsing smaps.
  */

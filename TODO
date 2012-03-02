@@ -1,0 +1,62 @@
+TODO:
+
+1.-  Change error handling to remind user that the program requires root if 
+     they receive error EPERM.
+2.-  Ensure that accessing addresses functions correctly with 64-bit
+     architecture. Retrieving addresses from maps and using them in pagemap may
+     result in truncation.
+3.-  Make write_compact_detail_pages add an extra column "identical pages" and
+     remove repetition of the string "identical pages" every line.
+4.-  Identify the strange behaviour of the present/absent bit on shared
+     libraries. It consistently reports that a frequently-used shared library
+     is not mapped at all.
+5.-  Make comments on #define macros in ramscanner_literals.h and
+     ramscanner_collect.h conform to Doxygen standards for per-line details.
+6.-  Replace all reference to KBSIZE with 1024, it is not a magic number.
+7.-  Document functions in headers if they exist in headers. function in source
+     files can refer to the documentation in the header.
+8.-  Remove static functions from headers - function prototypes
+     can go in their respective source files.
+9.-  Align coments to not overrun the 79th column, so that primitive terminals
+     won't add new lines where they aren't necessary.
+10.- Reorder structs that contain bitfields for the smallest bits at the end
+     where possible.
+11.- Also consider changing the flags into booleans instead of uint8_t, which
+     will require std=c99.
+12.- Have a Doxygen-compliant comment at the start of each source file, making
+     use of @file to identify it's a file comment, with @author and @copyright
+     information.
+13.- Add a front page comment for Doxygen to read, describing what the program
+     does. Incorporate information from README if possible.
+14.- Make "make doc" require the whole source code.
+15.- Consider whether parsing maps and smaps can be made simpler using tools
+     such as Lex/Flex, Yak/Bison, Regex/re2c, lemon or the glib function
+     "scanner".
+16.- Consider replacing the ternary functions in
+     ramscanner_collect\store_flags_in_page() into !!
+     (e.g. COND ? 1 : 0 into !!COND).
+17.- Consider making Doxygen recognise reference to other functions
+     (use "\func" instead of "func()")
+18.- If code is going to be c99-compliant, make declarations in the arguments
+     of the for loops. If not c99-compliant, remove declarations happening in
+     the middle of code.
+19.- Modify lookup_pagemap_with_addresses() to use fewer divisions, it is a
+     more expensive operation.
+20.- Consider removing the setting of errno to 0 before function calls. It
+     only needs to be set to 0 if the return type is not a good indicator of
+     if an error occurred.
+21.- Consider making lookup_pagemap_with_addresses() use fewer nested braces.
+22.- Change format for function comments to include a summary, a description
+     of the arguments used, and what the function returns.
+23.- Change all reference to sprintf to use snprintf instead. Possibly consider
+     using g_strdup_printf instead.
+24.- cleanup_and_exit currently conflates signals sent and error codes. Have a
+     separate function for signals from just cleaning up on error.
+25.- Rewrite "} else if () {" (ramscanner_collect.c:491) to not resemble
+     elseif statements.
+26.- In ramscanner_common\try_to_read_pid(), it conflates pid_t and unsigned
+     long. A long may be much larger than a PID could possibly be, check
+     against the maximum size of a pid_t.
+27.- The file streams opt->summaryfile, opt->detailfile and
+     opt->compactdetailfile may be set to stdout. Check that all uses of fclose
+     do not try and close stdout.

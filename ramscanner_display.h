@@ -1,5 +1,5 @@
-#ifndef _RAMSCANNER_DISPLAY_H_
-#define _RAMSCANNER_DISPLAY_H_
+#ifndef RAMSCANNER_DISPLAY_H
+#define RAMSCANNER_DISPLAY_H
 
 #include "ramscanner_common.h"
 

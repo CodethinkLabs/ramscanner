@@ -162,7 +162,9 @@ handle_args(int argc, char *argv[], options *opt)
 				opt->detailfile = stdout;
 			break;
 		default:
-			printf("Received an unexpected option\n");
+			/* getopt will print that it receives an invalid option
+			 * so no reporting needs to be added
+			 */
 		}
 	}
 }

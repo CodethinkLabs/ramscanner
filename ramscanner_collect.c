@@ -353,8 +353,8 @@ lookup_pagemap_with_addresses(uint32_t addressfrom, uint32_t addressto,
 		uint32_t o;
 
 		errno = 0;
-		o = fseek(filepagemap, i, SEEK_SET);
-		if (o == -1) {
+		ret = fseek(filepagemap, i, SEEK_SET);
+		if (ret == -1) {
 			perror("Error seeking in pagemap");
 			cleanup_and_exit(EXIT_FAILURE);
 		}
@@ -466,7 +466,7 @@ lookup_maps_with_PID(pid_t pid, options *opt, FILE *filepageflags,
 			vmaindex = opt->vmacount - 1;
 		}
 		errno = 0;
-		if (vmst)
+		if (vmst != NULL)
 			ret = sscanf(buffer, "%x-%x %4s", &addrstart, &addrend,
 		             vmst->permissions);
 		else
@@ -477,12 +477,12 @@ lookup_maps_with_PID(pid_t pid, options *opt, FILE *filepageflags,
 			cleanup_and_exit(EXIT_FAILURE);
 		}
 
-		if (ret < 2){
+		if (ret < 2) {
 			fprintf(stderr, "Error: Unexpected format of line in"
  					"maps.\n");
 			cleanup_and_exit(EXIT_FAILURE);
 		}
-		if (vmst) {
+		if (vmst != NULL) {
 			if ((pos = strchr(buffer, '/')) != NULL) {
 				char *newlinepos;
 				strcpy(vmst->path, pos);
